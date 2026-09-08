@@ -8,8 +8,8 @@ import json, sys, time
 from ccexlib import BASE, caps, email_for, expand, held, held_auto, id_for, is_base, slots
 from decide import FIVE_AT, cap as in_force
 from probe import NOTE, probe
-from usage import (account_json, age, cached, compact, live_sessions, still_counting,
-                   window)
+from usage import (account_json, age, cached, compact, live_sessions, reporting,
+                   still_counting, window)
 
 argv = sys.argv[1:]
 quiet = "--quiet" in argv
@@ -75,15 +75,16 @@ for name, d in targets:
     age_s = time.time() - have["fetchedAtMs"] / 1000 if have["fetchedAtMs"] else None
     fresh = age_s is not None and age_s < 300
     too_old = bool(max_age) and (age_s is None or age_s > max_age)   # 0 means never
-    if have["source"] == "session" and live_sessions(d) and not force:
-        st = "ok"                      # a session is open on this account and reporting; touch nothing
+    running = live_sessions(d)
+    if reporting(have, running) and not force:
+        st = "ok"                      # a session is open on this account and filing readings; touch nothing
     elif fresh and not force:
         st = "ok"                      # someone checked moments ago; no reason to ask again
     elif have["fetchedAtMs"] and not still_counting(d) and not force:
         st = "ok"                      # every window it knew about has since reset, so 0% is certain
     elif not is_base(d) and not force:
         st = "parked"                  # not the account you are running; leave it alone until asked
-    elif live_sessions(d) and not force:
+    elif running and not force:
         st = "unhooked"                # never start a second session behind a running one
     elif too_old:
         st = probe(d)                  # nothing is reporting and the numbers have aged out
@@ -94,7 +95,7 @@ for name, d in targets:
     if st not in ("ok", "parked"):
         notes.append("ccex: %s: %s" % (name, NOTE.get(st, st)))
     rows.append((name, email_for(d), window(d, "five_hour"), window(d, "seven_day"),
-                 "live" if have["source"] == "session" and live_sessions(d) else age(d)))
+                 "live" if reporting(have, running) else age(d)))
 
 if js:
     print(json.dumps([account_json(name, d) for name, d in targets]))

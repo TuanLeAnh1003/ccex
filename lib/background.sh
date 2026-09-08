@@ -160,6 +160,10 @@ UNITEOF
       return 0
       ;;
     log) [ -s "$ROOT/.usage/rotate.log" ] && cat "$ROOT/.usage/rotate.log" || printf 'ccex: no rotations logged yet\n' ;;
-    *) die "usage: ccex rotate --bg|--watch|--status|--log|--stop" ;;
+    # Whether the estimate is any good, in production rather than in a fixture: one line per
+    # blackout, written by the render that ended it, with what was guessed beside what was true.
+    guesses) [ -s "$ROOT/.usage/guess.log" ] && cat "$ROOT/.usage/guess.log" \
+               || printf 'ccex: no estimates scored yet (nothing has gone quiet with a burn rate behind it)\n' ;;
+    *) die "usage: ccex rotate --bg|--watch|--status|--log|--guesses|--stop" ;;
   esac
 }

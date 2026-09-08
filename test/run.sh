@@ -639,6 +639,188 @@ transcript "$HOME/new.jsonl" -5                   # a session that has replied s
 render_from "$HOME/new.jsonl" 44 33
 t  "and one newer than it is kept"                "44"       filed_b
 
+teardown; setup                 # the same session, but its work has moved into a subagent
+"$CCEX" use bee --no-check >/dev/null 2>&1        # now live: b@example.com
+transcript "$HOME/quiet.jsonl" 600                # the main thread went quiet ten minutes ago
+mkdir -p "$HOME/quiet/subagents"                  # where Claude Code keeps a subagent's replies
+transcript "$HOME/quiet/subagents/agent-1.jsonl" -5
+render_from "$HOME/quiet.jsonl" 44 33
+teardown; setup                 # a subagent that answered for the account we left, after we
+"$CCEX" use bee --no-check >/dev/null 2>&1        # had left it: busy is not caught up
+transcript "$HOME/old.jsonl" 600
+mkdir -p "$HOME/old/subagents"
+transcript "$HOME/old/subagents/agent-1.jsonl" -5
+render_from "$HOME/old.jsonl" 77 66
+t  "a subagent still on the old account is refused" "nothing" filed_b
+
+echo "a session that went quiet"
+# A render is the only thing that files a reading, and it happens on the main thread. Work
+# that moved into subagents keeps the process and the last snapshot where they were, so
+# neither one on its own says the account is still being reported on.
+quiet_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" "$HOME" <<'PYEOF'
+import os, sys, time
+from usage import REPORTING, busy, reporting
+now = time.time()
+def snap(age):
+    return {"source": "session", "fetchedAtMs": int((now - age) * 1000)}
+if sys.argv[1] == "fresh":
+    print(reporting(snap(10), running=True, now=now))
+elif sys.argv[1] == "stale":
+    print(reporting(snap(REPORTING + 60), running=True, now=now))
+elif sys.argv[1] == "noproc":
+    print(reporting(snap(10), running=False, now=now))
+elif sys.argv[1] in ("busy", "idle"):
+    d = os.path.join(sys.argv[2], "slot")
+    sub = os.path.join(d, "projects", "-some-project", "sess", "subagents")
+    os.makedirs(sub, exist_ok=True)
+    p = os.path.join(sub, "agent-1.jsonl")
+    open(p, "w").write("{}\n")
+    if sys.argv[1] == "idle":
+        os.utime(p, (now - 3600, now - 3600))
+    print(busy(d, max_age=0))
+PYEOF
+}
+t  "a session rendering now is reporting"       "True"      quiet_says fresh
+t  "one that has not rendered in minutes is not" "False"    quiet_says stale
+t  "and neither is a snapshot with no session"  "False"     quiet_says noproc
+t  "a subagent transcript is a session working" "True"      quiet_says busy
+t  "an hour-old one is a session sitting idle"  "False"     quiet_says idle
+
+echo "carrying a reading forward"
+teardown; setup                 # a@example.com live again: the block above switched to bee
+# The fixture is the real thing: evevance on 07-09, which read 36% at 18:33 with a burn of
+# 112%/h behind it and was at 100% thirty-three minutes later with nothing filed in between.
+# Twenty-nine minutes of that burn is 54 points, so the estimate should read about 90 -- the
+# cap, within a minute of when the account actually crossed it.
+guess_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" "$HOME" <<'PYEOF'
+import json, os, sys, time
+import burn
+from ccexlib import BASE, USAGE_DIR, email_for
+from usage import projected
+what, home, now = sys.argv[1], sys.argv[2], time.time()
+os.makedirs(USAGE_DIR, exist_ok=True)
+STALE = 29 * 60                       # how long ago the last reading was filed
+RUN = 801                             # the run behind it: 11% -> 36%, which is 112.4%/h
+pairs = {"fires": [11, 36], "flat": [40, 40], "one": [36]}.get(what, [11, 36])
+ring = [[int(now - STALE - RUN * (len(pairs) - 1 - i)), v, 5] for i, v in enumerate(pairs)]
+email = email_for(BASE)
+json.dump({"email": email, "samples": ring}, open(burn.hist_path(email), "w"))
+# a session whose subagent answered a moment ago and whose main thread has not in ten minutes
+sess = os.path.join(BASE, "projects", "-p", "sess")
+os.makedirs(os.path.join(sess, "subagents"), exist_ok=True)
+open(os.path.join(sess, "subagents", "agent-1.jsonl"), "w").write("{}\n")
+main = os.path.join(BASE, "projects", "-p", "sess.jsonl")
+open(main, "w").write("{}\n")
+os.utime(main, (now - 600, now - 600))
+if what == "mainbusy":                # ...unless the main thread is answering too
+    os.utime(main, (now, now))
+snap = {"source": "session", "fetchedAtMs": int((now - STALE) * 1000)}
+pct = 95 if what == "ceiling" else 36
+print("%.0f" % projected(BASE, "five_hour", pct, snap, running=True, now=now)[0])
+PYEOF
+}
+t  "a blackout carries the reading forward"     "90"        guess_says fires
+t  "a run that did not climb is not guessed at" "36"        guess_says flat
+t  "nor is a single reading"                    "36"        guess_says one
+t  "nor an account whose main thread answers"   "36"        guess_says mainbusy
+t  "and the estimate stops at 100"              "100"       guess_says ceiling
+
+teardown; setup
+
+# A projected percentage is the one number that must never become history. It is derived from
+# the burn rate, so recording it would build the next rate out of the last one -- and when the
+# real reading comes back it reads as a drop, which `burn.rate` can only take for a window
+# reset. The tick has to file what was measured, however stale, and file nothing when there is
+# nothing new to file.
+ring_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" <<'PYEOF'
+import json, os, sys, time
+import burn, ccexlib
+from ccexlib import BASE, USAGE_DIR, cfg_for, email_for, snap_path
+from usage import account_json
+what, now = sys.argv[1], time.time()
+os.makedirs(USAGE_DIR, exist_ok=True)
+cfg = json.load(open(cfg_for(BASE)))   # the stale session snap is the only reading in a blackout
+cfg.pop("cachedUsageUtilization", None)
+json.dump(cfg, open(cfg_for(BASE), "w"))
+STALE, RUN = 29 * 60, 801             # 11% -> 36% over 801s is 112.4%/h, filed 29 min ago
+email = email_for(BASE)
+ring = [[int(now - STALE - RUN), 11, 5], [int(now - STALE), 36, 5]]
+json.dump({"email": email, "samples": ring}, open(burn.hist_path(email), "w"))
+json.dump({"email": email, "fetchedAtMs": int((now - STALE) * 1000), "source": "session",
+           "utilization": {"five_hour": {"utilization": 36}, "seven_day": {"utilization": 5}}},
+          open(snap_path(email), "w"))
+sess = os.path.join(BASE, "projects", "-p", "sess")     # subagent busy, main thread quiet
+os.makedirs(os.path.join(sess, "subagents"), exist_ok=True)
+open(os.path.join(sess, "subagents", "agent-1.jsonl"), "w").write("{}\n")
+main = os.path.join(BASE, "projects", "-p", "sess.jsonl")
+open(main, "w").write("{}\n")
+os.utime(main, (now - 600, now - 600))
+a = account_json("default", BASE, now, {os.path.realpath(BASE): [1]})
+for _ in range(3):                    # three ticks of the watch loop, as the daemon runs it
+    burn.note(a["email"], a["five_measured"], a["seven_measured"])
+    ccexlib._cached.clear()
+got = json.load(open(burn.hist_path(email)))["samples"]
+if what == "grew":                    # the row still acts on the estimate
+    print("%.0f" % a["five"])
+elif what == "kept":                  # ...and the history still holds only what was measured
+    print("%d %s" % (len(got), " ".join(str(s[1]) for s in got)))
+PYEOF
+}
+t  "a blackout tick records nothing new"       "2 11 36"   ring_says kept
+t  "though the row still shows the estimate"   "90"        ring_says grew
+
+# An estimate nobody ever checks is a number, not a claim. The render that ends a blackout is
+# the one moment a measured answer exists for it, so that is where it gets scored -- and the
+# line goes to guess.log, which is how the estimate is reviewed in production rather than in
+# this file.
+scored_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" <<'PYEOF'
+import json, os, sys, time
+import burn, ccexlib
+from ccexlib import BASE, USAGE_DIR, cfg_for, email_for, snap_path
+from usage import projected
+what, now = sys.argv[1], time.time()
+os.makedirs(USAGE_DIR, exist_ok=True)
+cfg = json.load(open(cfg_for(BASE)))
+cfg.pop("cachedUsageUtilization", None)
+json.dump(cfg, open(cfg_for(BASE), "w"))
+email = email_for(BASE)
+STALE, RUN = 29 * 60, 801             # 11% -> 36% over 801s is 112.4%/h
+json.dump({"email": email, "samples": [[int(now - STALE - RUN), 11, 5], [int(now - STALE), 36, 5]]},
+          open(burn.hist_path(email), "w"))
+sess = os.path.join(BASE, "projects", "-p", "sess")
+os.makedirs(os.path.join(sess, "subagents"), exist_ok=True)
+open(os.path.join(sess, "subagents", "agent-1.jsonl"), "w").write("{}\n")
+main = os.path.join(BASE, "projects", "-p", "sess.jsonl")
+open(main, "w").write("{}\n")
+os.utime(main, (now - 600, now - 600))
+snap = {"source": "session", "fetchedAtMs": int((now - STALE) * 1000)}
+projected(BASE, "five_hour", 36, snap, running=True, now=now)      # files the standing guess
+if what == "standing":                # ...which is kept until something can check it
+    g = json.load(open(burn.guess_path(email)))["guesses"]["five_hour"]
+    print("%.0f from %.0f at %.0f" % (g["guess"], g["was"], g["rate"]))
+    raise SystemExit
+ccexlib._cached.clear()
+actual = {"reset": 3, "hit": 88}.get(what, 88)
+burn.score(email, {"five_hour": {"utilization": actual}})
+print(open(burn.GUESS_LOG).read().strip() if os.path.exists(burn.GUESS_LOG) else "")
+print("gone" if not os.path.exists(burn.guess_path(email)) else "still there")
+PYEOF
+}
+t  "an estimate is filed to be checked later"  "90 from 36 at 112"   scored_says standing
+t  "the render that ends it scores the miss"   "estimate 90% vs actual 88% (-2.3"  scored_says hit
+t  "and says how long it was guessing for"    "29m blind from 36% at 112.4%/h"    scored_says hit
+t  "a window that reset while blind is not"   "reset while blind"   scored_says reset
+t  "a scored guess is not scored twice"       "gone"                scored_says hit
+t  "the log is a subcommand"                  "estimate 90% vs actual 88%"  "$CCEX" rotate --guesses
+
 echo "a switch you typed"
 teardown; setup                 # cee is spent; naming it anyway must say so before it moves
 spend_five cee 95
@@ -1049,12 +1231,69 @@ elif sys.argv[1] == "backwards":
                "samples": [[now - 900, 90, 5], [now - 600, 2, 5], [now, 8, 5]]},
               open(burn.hist_path("a@example.com"), "w"))
     print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "jitter":
+    # Claude Code's own numbers dip a point or two. Read as a reset, that throws away the
+    # run and blinds the forecast for minutes -- exactly when a fan-out is spending fastest.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 900, 10, 5], [now - 600, 18, 5],
+                           [now - 590, 16, 5], [now, 25, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % (burn.rate("a@example.com", "five_hour") or 0))
+elif sys.argv[1] == "fast":
+    # Six points in 90 seconds is 240%/h. Under a flat five-minute span rule this is
+    # unanswerable for another three and a half minutes; the climb is its own evidence.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 90, 60, 5], [now, 66, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % (burn.rate("a@example.com", "five_hour") or 0))
+elif sys.argv[1] == "blip":
+    # ...but not off two readings a moment apart, however big the jump between them.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 5, 60, 5], [now, 80, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("none" if burn.rate("a@example.com", "five_hour") is None else "GUESSED")
+elif sys.argv[1] == "stint":
+    # An account keeps its ring across stints. The hours it sat parked were hours it was
+    # not being spent, so averaging them in reads as a burn several times slower than the
+    # fan-out that just started -- the wrong number, at the worst moment to have it.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 3000, 10, 5], [now - 2400, 12, 5],
+                           [now - 600, 12, 5], [now - 300, 20, 5], [now, 30, 5]],
+               "live_since": now - 600},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "unclipped":
+    json.dump({"email": "a@example.com",       # the same ring, with no stint recorded
+               "samples": [[now - 3000, 10, 5], [now - 2400, 12, 5],
+                           [now - 600, 12, 5], [now - 300, 20, 5], [now, 30, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "keeps":
+    json.dump({"email": "a@example.com", "samples": [[now - 600, 12, 5], [now, 30, 5]],
+               "live_since": now - 600}, open(burn.hist_path("a@example.com"), "w"))
+    burn.note("a@example.com", 33, 6)          # appending must not forget the stint
+    import ccexlib; ccexlib._cached.clear()
+    print("kept" if json.load(open(burn.hist_path("a@example.com"))).get("live_since") else "LOST")
+elif sys.argv[1] == "creep":
+    # A slow account still waits for a real span: two points in two minutes says nothing.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 120, 30, 5], [now, 32, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("none" if burn.rate("a@example.com", "five_hour") is None else "GUESSED")
 PYEOF
 }
 t  "a burn rate from two readings" "60%/h"               burn_says rate
 t  "an eta to the cap"             "50m"                 burn_says eta
 t  "a window that resets first"    "resets first"        burn_says resets
 t  "a reset does not read as negative" "36%/h"           burn_says backwards
+t  "a one-point dip is not a reset"  "60%/h"           burn_says jitter
+t  "a fast climb answers early"     "240%/h"          burn_says fast
+t  "but not off two adjacent reads" "none"            burn_says blip
+t  "and a slow one still waits"     "none"            burn_says creep
+t  "a rate starts at the switch"    "108%/h"          burn_says stint
+absent "not averaged over the parked hours" "27%/h"      burn_says stint
+t  "with no stint marked it spans all"  "27%/h"          burn_says unclipped
+t  "and a new sample keeps the stint"   "kept"           burn_says keeps
 
 echo "the top bar"
 # `systemctl --user` answers for the machine, not for this fake HOME, so the assertion has

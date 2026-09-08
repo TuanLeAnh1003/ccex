@@ -1,6 +1,7 @@
 """Hand the live ~/.claude slot over to a parked account, and park the one that was there."""
 import os, shutil, sys, time
 
+import burn
 from ccexlib import (BASE, ROOT, canon, cfg_for, creds_for, email_for, expand, held,
                      id_for, load, logged_in, note_switch, running_at, save, seed_into, step)
 from decide import FIVE_AT, cap, own, ranked, reads
@@ -177,6 +178,9 @@ save(pk_cfg, pkcfg)
 
 # What the outgoing account was reading, before its numbers are parked with it.
 note_switch(live_email, cached(BASE)["utilization"] or {})
+# And when the incoming one started its stint, so its burn rate is measured from here
+# rather than averaged across however long it sat parked.
+burn.note_arrival(src_email)
 
 lc["claudeAiOauth"] = sc["claudeAiOauth"]
 for k in IDENTITY:

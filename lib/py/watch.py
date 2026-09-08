@@ -272,7 +272,9 @@ class View:
         for name, d in slots():
             a = account_json(name, d, now, self.pids)
             a["id"] = a["id"] or 0
-            burn.note(a["email"], a["five"], a["seven"])
+            # Measured only: a projected percentage fed back in would inflate the rate that
+            # produced it, and the drop when the real reading returns reads as a window reset.
+            burn.note(a["email"], a["five_measured"], a["seven_measured"])
             # Only the forecast reads a rate, and it only forecasts the account you are on.
             forecast = not self.serving and name == "default"
             a["rate_five"] = burn.rate(a["email"], "five_hour", now) if forecast else None
