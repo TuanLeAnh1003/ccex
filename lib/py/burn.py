@@ -13,6 +13,14 @@ from ccexlib import USAGE_DIR, fresh, hm, save, snap_path
 KEEP = 200              # samples per account; only changes are recorded
 LOOKBACK = 45 * 60      # a rate older than this says nothing about what you are doing now
 MIN_SPAN = 300          # a percent gained in a minute would extrapolate to nonsense
+# ...unless the climb behind it is real. MIN_SPAN is a flat five-minute wait however fast the
+# account is being spent, and the whole point of the estimate is the fast case: at 112%/h --
+# the rate measured off a real subagent blackout -- five points land in 161s, and waiting the
+# other 139s is waiting while the thing we are trying to catch happens. A big climb is its own
+# evidence, so either qualifies. FLOOR_SPAN keeps a single adjacent pair from doing it.
+MIN_CLIMB = 5           # points of climb that stand in for a full span
+FLOOR_SPAN = 60         # but never off less than this: two readings a moment apart say nothing
+JITTER = 2              # Claude Code's own numbers dip a point or two; only a bigger fall is a reset
 
 
 def hist_path(email):
@@ -39,7 +47,11 @@ def note(email, five, seven):
     ring.append([now, five, seven])
     try:
         os.makedirs(USAGE_DIR, exist_ok=True)
-        save(p, {"email": email, "samples": ring[-KEEP:]}, unique=True)
+        keep = {"email": email, "samples": ring[-KEEP:]}
+        was = fresh(p).get("live_since")
+        if was:
+            keep["live_since"] = was      # appending a sample must not forget the stint
+        save(p, keep, unique=True)
     except OSError:
         pass
 
@@ -113,29 +125,55 @@ def score(email, util):
         pass
 
 
+def note_arrival(email):
+    """Mark this account as having just come live, so its rate starts from here.
+
+    An account keeps its ring across stints. Samples from before it was parked are the same
+    account and often the same 5-hour window, but the hours it spent parked were hours it was
+    not being spent -- averaged in, they read as a burn three times slower than what the new
+    stint is actually doing, which is the wrong number to hand a switch decision at exactly
+    the moment a fresh account starts a fan-out.
+    """
+    if not email:
+        return
+    p = hist_path(email)
+    have = fresh(p)
+    try:
+        os.makedirs(USAGE_DIR, exist_ok=True)
+        save(p, {"email": email, "samples": have.get("samples") or [],
+                 "live_since": int(time.time())}, unique=True)
+    except OSError:
+        pass
+
+
 def rate(email, key, now=None):
     """Percent per hour this window is climbing, or None if we cannot honestly say.
 
     Only the run of samples since the window last reset counts: a reset drops the
     percentage to zero, and averaging across that would report a negative burn on an
-    account that is in fact filling up again.
+    account that is in fact filling up again. The same applies to the moment this account
+    came live: what it did during an earlier stint is not what it is doing now.
     """
     col = 1 if key == "five_hour" else 2
     now = now or time.time()
-    ring = [s for s in (fresh(hist_path(email)).get("samples") or [])
-            if s[col] is not None and now - s[0] <= LOOKBACK]
+    have = fresh(hist_path(email))
+    since = have.get("live_since") or 0
+    ring = [s for s in (have.get("samples") or [])
+            if s[col] is not None and now - s[0] <= LOOKBACK and s[0] >= since]
     if len(ring) < 2:
         return None
     run = [ring[-1]]
     for s in reversed(ring[:-1]):
-        if s[col] > run[0][col]:
+        if s[col] > run[0][col] + JITTER:
             break                         # older reading was higher: the window reset in between
         run.insert(0, s)
     if len(run) < 2:
         return None
     span = run[-1][0] - run[0][0]
     climb = run[-1][col] - run[0][col]
-    if span < MIN_SPAN or climb <= 0:
+    if climb <= 0:
+        return None
+    if span < MIN_SPAN and not (climb >= MIN_CLIMB and span >= FLOOR_SPAN):
         return None
     return climb / (span / 3600.0)
 

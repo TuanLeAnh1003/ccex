@@ -1231,12 +1231,69 @@ elif sys.argv[1] == "backwards":
                "samples": [[now - 900, 90, 5], [now - 600, 2, 5], [now, 8, 5]]},
               open(burn.hist_path("a@example.com"), "w"))
     print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "jitter":
+    # Claude Code's own numbers dip a point or two. Read as a reset, that throws away the
+    # run and blinds the forecast for minutes -- exactly when a fan-out is spending fastest.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 900, 10, 5], [now - 600, 18, 5],
+                           [now - 590, 16, 5], [now, 25, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % (burn.rate("a@example.com", "five_hour") or 0))
+elif sys.argv[1] == "fast":
+    # Six points in 90 seconds is 240%/h. Under a flat five-minute span rule this is
+    # unanswerable for another three and a half minutes; the climb is its own evidence.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 90, 60, 5], [now, 66, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % (burn.rate("a@example.com", "five_hour") or 0))
+elif sys.argv[1] == "blip":
+    # ...but not off two readings a moment apart, however big the jump between them.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 5, 60, 5], [now, 80, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("none" if burn.rate("a@example.com", "five_hour") is None else "GUESSED")
+elif sys.argv[1] == "stint":
+    # An account keeps its ring across stints. The hours it sat parked were hours it was
+    # not being spent, so averaging them in reads as a burn several times slower than the
+    # fan-out that just started -- the wrong number, at the worst moment to have it.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 3000, 10, 5], [now - 2400, 12, 5],
+                           [now - 600, 12, 5], [now - 300, 20, 5], [now, 30, 5]],
+               "live_since": now - 600},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "unclipped":
+    json.dump({"email": "a@example.com",       # the same ring, with no stint recorded
+               "samples": [[now - 3000, 10, 5], [now - 2400, 12, 5],
+                           [now - 600, 12, 5], [now - 300, 20, 5], [now, 30, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("%.0f%%/h" % burn.rate("a@example.com", "five_hour"))
+elif sys.argv[1] == "keeps":
+    json.dump({"email": "a@example.com", "samples": [[now - 600, 12, 5], [now, 30, 5]],
+               "live_since": now - 600}, open(burn.hist_path("a@example.com"), "w"))
+    burn.note("a@example.com", 33, 6)          # appending must not forget the stint
+    import ccexlib; ccexlib._cached.clear()
+    print("kept" if json.load(open(burn.hist_path("a@example.com"))).get("live_since") else "LOST")
+elif sys.argv[1] == "creep":
+    # A slow account still waits for a real span: two points in two minutes says nothing.
+    json.dump({"email": "a@example.com",
+               "samples": [[now - 120, 30, 5], [now, 32, 5]]},
+              open(burn.hist_path("a@example.com"), "w"))
+    print("none" if burn.rate("a@example.com", "five_hour") is None else "GUESSED")
 PYEOF
 }
 t  "a burn rate from two readings" "60%/h"               burn_says rate
 t  "an eta to the cap"             "50m"                 burn_says eta
 t  "a window that resets first"    "resets first"        burn_says resets
 t  "a reset does not read as negative" "36%/h"           burn_says backwards
+t  "a one-point dip is not a reset"  "60%/h"           burn_says jitter
+t  "a fast climb answers early"     "240%/h"          burn_says fast
+t  "but not off two adjacent reads" "none"            burn_says blip
+t  "and a slow one still waits"     "none"            burn_says creep
+t  "a rate starts at the switch"    "108%/h"          burn_says stint
+absent "not averaged over the parked hours" "27%/h"      burn_says stint
+t  "with no stint marked it spans all"  "27%/h"          burn_says unclipped
+t  "and a new sample keeps the stint"   "kept"           burn_says keeps
 
 echo "the top bar"
 # `systemctl --user` answers for the machine, not for this fake HOME, so the assertion has
