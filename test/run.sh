@@ -775,6 +775,52 @@ PYEOF
 t  "a blackout tick records nothing new"       "2 11 36"   ring_says kept
 t  "though the row still shows the estimate"   "90"        ring_says grew
 
+# An estimate nobody ever checks is a number, not a claim. The render that ends a blackout is
+# the one moment a measured answer exists for it, so that is where it gets scored -- and the
+# line goes to guess.log, which is how the estimate is reviewed in production rather than in
+# this file.
+scored_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" <<'PYEOF'
+import json, os, sys, time
+import burn, ccexlib
+from ccexlib import BASE, USAGE_DIR, cfg_for, email_for, snap_path
+from usage import projected
+what, now = sys.argv[1], time.time()
+os.makedirs(USAGE_DIR, exist_ok=True)
+cfg = json.load(open(cfg_for(BASE)))
+cfg.pop("cachedUsageUtilization", None)
+json.dump(cfg, open(cfg_for(BASE), "w"))
+email = email_for(BASE)
+STALE, RUN = 29 * 60, 801             # 11% -> 36% over 801s is 112.4%/h
+json.dump({"email": email, "samples": [[int(now - STALE - RUN), 11, 5], [int(now - STALE), 36, 5]]},
+          open(burn.hist_path(email), "w"))
+sess = os.path.join(BASE, "projects", "-p", "sess")
+os.makedirs(os.path.join(sess, "subagents"), exist_ok=True)
+open(os.path.join(sess, "subagents", "agent-1.jsonl"), "w").write("{}\n")
+main = os.path.join(BASE, "projects", "-p", "sess.jsonl")
+open(main, "w").write("{}\n")
+os.utime(main, (now - 600, now - 600))
+snap = {"source": "session", "fetchedAtMs": int((now - STALE) * 1000)}
+projected(BASE, "five_hour", 36, snap, running=True, now=now)      # files the standing guess
+if what == "standing":                # ...which is kept until something can check it
+    g = json.load(open(burn.guess_path(email)))["guesses"]["five_hour"]
+    print("%.0f from %.0f at %.0f" % (g["guess"], g["was"], g["rate"]))
+    raise SystemExit
+ccexlib._cached.clear()
+actual = {"reset": 3, "hit": 88}.get(what, 88)
+burn.score(email, {"five_hour": {"utilization": actual}})
+print(open(burn.GUESS_LOG).read().strip() if os.path.exists(burn.GUESS_LOG) else "")
+print("gone" if not os.path.exists(burn.guess_path(email)) else "still there")
+PYEOF
+}
+t  "an estimate is filed to be checked later"  "90 from 36 at 112"   scored_says standing
+t  "the render that ends it scores the miss"   "estimate 90% vs actual 88% (-2.3"  scored_says hit
+t  "and says how long it was guessing for"    "29m blind from 36% at 112.4%/h"    scored_says hit
+t  "a window that reset while blind is not"   "reset while blind"   scored_says reset
+t  "a scored guess is not scored twice"       "gone"                scored_says hit
+t  "the log is a subcommand"                  "estimate 90% vs actual 88%"  "$CCEX" rotate --guesses
+
 echo "a switch you typed"
 teardown; setup                 # cee is spent; naming it anyway must say so before it moves
 spend_five cee 95

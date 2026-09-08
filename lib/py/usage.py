@@ -227,8 +227,13 @@ def projected(d, key, pct, snap, running, now=None):
     rate = burn.rate(email_for(d), key, now)
     if not rate:
         return pct, False
-    grown = pct + rate * (now - ms / 1000) / 3600.0
-    return min(100.0, max(pct, grown)), grown > pct
+    grown = min(100.0, max(pct, pct + rate * (now - ms / 1000) / 3600.0))
+    if grown > pct:
+        # Filed so the render that ends this blackout can score it. Written on every call
+        # rather than once, because the estimate that matters is the last one standing --
+        # the one a switch would have acted on.
+        burn.note_guess(email_for(d), key, pct, grown, rate, now - ms / 1000)
+    return grown, grown > pct
 
 
 def effective(d, key, now=None, snap=None, running=None):

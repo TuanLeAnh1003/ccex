@@ -655,6 +655,20 @@ switch is decided on, so a fast fan-out moves off the account rather than runnin
 its ceiling; the cost is that it will sometimes move a few minutes early and leave a little
 unspent.
 
+An estimate nobody checks is just a number, so every one gets scored. The render that ends a
+blackout is the only moment a measured answer exists, and that is where the comparison
+happens — the estimate that was standing, beside what turned out to be true:
+
+```console
+$ ccex rotate --guesses
+2026-09-08 19:02:14  ccex: evevance@… five_hour estimate 90% vs actual 88% (-2.3 after 29m blind from 36% at 112.4%/h)
+2026-09-08 08:36:41  ccex: huffquinlan@… seven_day estimate 74% vs actual 76% (+1.8 after 18m blind from 51% at 83.3%/h)
+```
+
+A window that reset while nothing could see it is recorded as unscored rather than counted as
+a miss it did not make: the estimate was answering a question that stopped being asked. This
+is how the projection is reviewed in production, and how a rate that drifts would show up.
+
 ### Live numbers from your statusline
 
 `ccex record` is a filter: statusline JSON in, the same JSON out, limits noted on the way

@@ -94,7 +94,7 @@ this costs one session, not two.
 U
 ;;
   rotate) cat <<'U'
-ccex rotate [--at 80] [-n] [--bg|--watch|--status|--log|--stop]
+ccex rotate [--at 80] [-n] [--bg|--watch|--status|--log|--guesses|--stop]
 
 Switch off the live account if it has crossed --at on the 5-hour or weekly window,
 onto whichever account has the most usable room. With no flag it does that once, now.
@@ -113,6 +113,7 @@ Keep it running:
   --watch       in this terminal, one line per check; 1-6 re-pace, r checks now, q quits
   --status      whether it is running, what it costs, and what it has rotated
   --log         every switch it has made
+  --guesses     every estimate it made for a quiet session, beside what turned out to be true
   --stop        remove it
 
   --every 10s   how often it re-reads the numbers (--bg), or prints a line (--watch)
@@ -468,6 +469,7 @@ case "$cmd" in
         --serve)  mode=serve ;;      # what --bg installs: resident, switches on data change
         --status) mode=status ;;
         --log)    mode=log ;;
+        --guesses) mode=guesses ;;
         --stop)   mode=stop ;;
         --tick)   mode=tick ;;      # what the timer runs: rotate once, then write the log
         --at|--every|--refresh|--max-age|-n|--dry-run|--no-launch|--no-verify)

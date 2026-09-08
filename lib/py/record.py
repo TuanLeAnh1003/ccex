@@ -46,5 +46,9 @@ try:
     # A render is the only moment anyone sees a fresh number, so it is where the burn
     # rate behind `ccex ls -w`'s "switch in ~2h" comes from.
     burn.note(email, *[(util.get(k) or {}).get("utilization") for k in ("five_hour", "seven_day")])
+    # This reading is also the answer to whatever was estimated while the session was quiet,
+    # and the only moment that answer exists. Scoring here keeps the check in production
+    # rather than in a test fixture.
+    burn.score(email, util)
 except Exception:
     pass

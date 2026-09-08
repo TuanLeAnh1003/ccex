@@ -6,9 +6,9 @@ small ring per account, and the estimate is read back out of that. Samples are o
 appended when a number actually moves, so an idle account costs nothing and a ring of
 two hundred covers hours of real work.
 """
-import os, time
+import datetime, os, time
 
-from ccexlib import USAGE_DIR, fresh, save, snap_path
+from ccexlib import USAGE_DIR, fresh, hm, save, snap_path
 
 KEEP = 200              # samples per account; only changes are recorded
 LOOKBACK = 45 * 60      # a rate older than this says nothing about what you are doing now
@@ -40,6 +40,75 @@ def note(email, five, seven):
     try:
         os.makedirs(USAGE_DIR, exist_ok=True)
         save(p, {"email": email, "samples": ring[-KEEP:]}, unique=True)
+    except OSError:
+        pass
+
+
+GUESS_LOG = os.path.join(USAGE_DIR, "guess.log")   # every estimate, scored against what came next
+
+
+def guess_path(email):
+    return snap_path(email).replace(".json", ".guess.json")
+
+
+def note_guess(email, key, was, guess, per_hour, blind_for):
+    """Remember the estimate standing in for this window, so the next reading can score it.
+
+    An estimate is only worth anything if it can be checked, and the only thing that can
+    check it is the reading that ends the blackout. So the standing guess is kept where that
+    reading will find it: overwritten as it grows, and read once when the truth arrives.
+    """
+    if not email:
+        return
+    p = guess_path(email)
+    have = fresh(p).get("guesses") or {}
+    have[key] = {"was": was, "guess": round(guess, 1), "rate": round(per_hour, 1),
+                 "blind_for": int(blind_for), "at": int(time.time())}
+    try:
+        os.makedirs(USAGE_DIR, exist_ok=True)
+        save(p, {"email": email, "guesses": have}, unique=True)
+    except OSError:
+        pass
+
+
+def score(email, util):
+    """Score any standing estimate for this account against the reading that just landed.
+
+    Called from a render, which is the one moment a measured number exists to compare
+    against. A window that reset while we were blind cannot be scored -- the estimate was
+    answering a question that stopped being asked -- so it is dropped rather than logged as
+    a miss it did not make.
+    """
+    if not email:
+        return
+    p = guess_path(email)
+    guesses = fresh(p).get("guesses") or {}
+    if not guesses:
+        return
+    lines = []
+    for key, g in guesses.items():
+        actual = ((util or {}).get(key) or {}).get("utilization")
+        if actual is None:
+            continue
+        if actual + 0.5 < g["was"]:
+            lines.append("%s %s reset while blind, estimate %.0f%% not scored" % (
+                email, key, g["guess"]))
+            continue
+        off = g["guess"] - actual
+        lines.append("%s %s estimate %.0f%% vs actual %.0f%% (%+.1f after %s blind from %.0f%% at %.1f%%/h)"
+                     % (email, key, g["guess"], actual, -off, hm(g["blind_for"]),
+                        g["was"], g["rate"]))
+    try:
+        os.remove(p)                  # scored once; the next blackout files its own
+    except OSError:
+        pass
+    if not lines:
+        return
+    try:
+        with open(GUESS_LOG, "a") as f:      # O_APPEND, so two renders cannot interleave
+            for l in lines:
+                f.write("%s  ccex: %s\n" % (
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), l))
     except OSError:
         pass
 
