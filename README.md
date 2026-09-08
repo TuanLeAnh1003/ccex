@@ -629,6 +629,32 @@ is about to move to. If a session is already open on the live account but you ha
 `ccex` shows slightly old numbers rather than starting a second session behind your back —
 that holds even past `--refresh`, so the promise has no exception.
 
+### When a session goes quiet
+
+The statusline renders on the main thread. A session whose work has moved into subagents
+keeps its process, its window and its last reading exactly where they were and files
+nothing for as long as they run — half an hour in which an account can go from 60% to
+spent with nothing on file to say so. Nothing here can fix that at the source: `ccex
+record` is invoked *by* Claude Code, and a subagent's transcript carries token counts, not
+rate limits.
+
+So the reading is carried forward instead. When subagents are being answered, the main
+thread is quiet and nothing has rendered for five minutes, the percentage on file is not
+merely old — it is known to be wrong, and known which way. `ccex` adds what the account's
+own recent burn rate says it has spent since, and marks the number `~` so it never reads as
+something someone measured:
+
+```console
+5h      █████████░    ~90% used, resets 04:00 (0h55m)
+```
+
+It only ever goes up, it stops at 100%, and a real reading replaces it the moment one
+lands. Where there is no burn rate to work from — an account just switched to, or one that
+has been idle — nothing is guessed and the reading stands as it is. The estimate is what a
+switch is decided on, so a fast fan-out moves off the account rather than running it into
+its ceiling; the cost is that it will sometimes move a few minutes early and leave a little
+unspent.
+
 ### Live numbers from your statusline
 
 `ccex record` is a filter: statusline JSON in, the same JSON out, limits noted on the way

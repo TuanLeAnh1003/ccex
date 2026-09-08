@@ -311,6 +311,13 @@ def last_api_reply(path, tail=1 << 18):
 
     Only main-thread assistant lines with a request behind them count: metadata lines carry
     no exchange, and a subagent's replies do not refresh what the statusline renders.
+
+    A subagent's reply is deliberately not enough, and not because it costs nothing -- it
+    costs the same as any other. A session that was running when the slot changed hands goes
+    on answering as the account it started with, subagents and all, so a subagent reply that
+    landed after a switch says the session is busy, not that it has caught up with it. The
+    main thread is the narrower signal and the safe one: abstaining loses a reading, and
+    accepting files one against the wrong account.
     """
     try:
         with open(path, "rb") as f:
