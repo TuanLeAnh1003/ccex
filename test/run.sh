@@ -775,6 +775,50 @@ PYEOF
 t  "a blackout tick records nothing new"       "2 11 36"   ring_says kept
 t  "though the row still shows the estimate"   "90"        ring_says grew
 
+# The daemon is the only thing that actually switches, and it was the one process that could
+# never see the estimate: serving skipped the /proc walk, so every account looked like nothing
+# was running it, and the blackout check short-circuits on exactly that. The feature was inert
+# where it mattered and live only in a view nobody keeps open.
+serving_says() {
+  CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
+  PYTHONPATH="$(dirname "$CCEX")/../lib/py" python3 - "$1" <<'PYEOF'
+import json, os, sys, time
+import burn, usage, watch
+from ccexlib import BASE, USAGE_DIR, cfg_for, email_for, snap_path
+what, now = sys.argv[1], time.time()
+os.makedirs(USAGE_DIR, exist_ok=True)
+cfg = json.load(open(cfg_for(BASE)))
+cfg.pop("cachedUsageUtilization", None)
+json.dump(cfg, open(cfg_for(BASE), "w"))
+email = email_for(BASE)
+STALE, RUN = 29 * 60, 801
+json.dump({"email": email, "samples": [[int(now - STALE - RUN), 11, 5], [int(now - STALE), 36, 5]]},
+          open(burn.hist_path(email), "w"))
+json.dump({"email": email, "fetchedAtMs": int((now - STALE) * 1000), "source": "session",
+           "utilization": {"five_hour": {"utilization": 36}, "seven_day": {"utilization": 5}}},
+          open(snap_path(email), "w"))
+sess = os.path.join(BASE, "projects", "-p", "sess")
+os.makedirs(os.path.join(sess, "subagents"), exist_ok=True)
+open(os.path.join(sess, "subagents", "agent-1.jsonl"), "w").write("{}\n")
+main = os.path.join(BASE, "projects", "-p", "sess.jsonl")
+open(main, "w").write("{}\n")
+os.utime(main, (now - 600, now - 600))
+usage.live_map = watch.live_map = lambda max_age=0.0: {os.path.realpath(BASE): [4242]}
+v = watch.View.__new__(watch.View)
+v.serving, v.walked, v.pids = True, 0.0, {}
+v.every, v.at, v.at_given, v.verify = 10, 90, True, False
+v.asked = v.sampled = 0.0
+v.switches, v.last_live, v.refresh, v.act, v.timer = [], None, 0, False, watch.NO_UNIT
+v.sample()
+if what == "walks":                   # serving reaches the estimate at all
+    print("%.0f %s" % (v.live["five"], v.live["inferred"]))
+elif what == "rate":                  # ...and has a rate to reach it with
+    print("%.0f%%/h" % (v.live["rate_five"] or 0))
+PYEOF
+}
+t  "the daemon reaches the estimate too"  "90 True"    serving_says walks
+t  "and has a rate while serving"         "112%/h"     serving_says rate
+
 # An estimate nobody ever checks is a number, not a claim. The render that ends a blackout is
 # the one moment a measured answer exists for it, so that is where it gets scored -- and the
 # line goes to guess.log, which is how the estimate is reviewed in production rather than in
