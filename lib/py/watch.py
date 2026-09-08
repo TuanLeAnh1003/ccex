@@ -15,6 +15,11 @@ from usage import GRACE, account_json, age_text, bar, live_map
 
 PRESETS = [10, 30, 60, 300, 900, 1800]
 PROC_EVERY = 15         # seconds between /proc walks: the one read that is not free
+# The daemon needs the walk too, and for a different reason than the view: the estimate for a
+# session gone quiet is only reached for an account something is running, so with no walk it
+# is never reached at all -- the one process that actually rotates would be the one blind to
+# it. 20ms every half minute is 0.07% of a core, which is what that costs.
+SERVE_PROC_EVERY = 30
 WEEKLY_NEAR = 90        # below this the week is not what the next switch will be about
 NO_UNIT = {"active": False, "legacy": False, "at": None, "refresh": None, "every": None}
 
@@ -266,8 +271,10 @@ class View:
         up as `live` ten seconds late costs nothing; doing it every tick costs 10ms a tick.
         """
         now = time.time()
-        if not self.serving and now - self.walked >= max(PROC_EVERY, self.every):
-            self.pids, self.walked = live_map(), now      # nothing headless reads `live`
+        # Serving walks on a slower clock than it ticks; the view walks on its own --every.
+        due = SERVE_PROC_EVERY if self.serving else max(PROC_EVERY, self.every)
+        if now - self.walked >= due:
+            self.pids, self.walked = live_map(), now
         rows = []
         for name, d in slots():
             a = account_json(name, d, now, self.pids)
@@ -276,7 +283,7 @@ class View:
             # produced it, and the drop when the real reading returns reads as a window reset.
             burn.note(a["email"], a["five_measured"], a["seven_measured"])
             # Only the forecast reads a rate, and it only forecasts the account you are on.
-            forecast = not self.serving and name == "default"
+            forecast = name == "default"
             a["rate_five"] = burn.rate(a["email"], "five_hour", now) if forecast else None
             a["rate_seven"] = burn.rate(a["email"], "seven_day", now) if forecast else None
             rows.append(a)
