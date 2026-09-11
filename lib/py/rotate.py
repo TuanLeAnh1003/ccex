@@ -1,7 +1,7 @@
 """Print rotation's decision as one tab-separated line for `lib/rotate.sh`. Reads `ccex ls --json`."""
 import json, os, sys, time
 
-from ccexlib import USAGE_DIR, hm, hold_auto, load, save, slots, step
+from ccexlib import USAGE_DIR, deaf, hm, hold_auto, load, save, slots, step
 from decide import FIVE_AT, FIVE_HOUR, WEEKLY_AT, cap, capped, decide, ranked, reads
 
 accounts = json.load(sys.stdin)
@@ -40,19 +40,27 @@ def asked_since(cand, since):
 
 
 def plan():
-    """Retire what has spent its week, then decide. Both, because verification can turn up
-    the number that retires an account, and it should retire it like any other would.
+    """Retire what has spent its week or stopped answering, then decide. Both, because
+    verification can turn up the number -- or the silence -- that retires an account, and it
+    should retire it like any other would.
 
     Only verification can offer an unmeasured account, so `blind` follows it exactly: with
     nothing going to read that account first, being unmeasured has to keep it out.
     """
     for a in accounts:
-        if a.get("held") or a["seven"] is None or a["seven"] < WEEKLY_AT or capped(a):
-            continue                      # a cap is a standing arrangement, and an account under
-        why = "weekly at %d%%" % a["seven"]   # one reaches 99% only because that cap gave way in
-        # the last hours of its week -- retiring it there would hold it out of the week starting
-        # minutes later. Only an account you cap nothing on is one you meant to spend to the end.
-        if dry or hold_auto(a["email"], why):
+        if a.get("held"):
+            continue
+        # An account that will not answer is retired whatever its caps say: a cap is about
+        # how far to spend an account, and this one cannot be read at all. Its numbers only
+        # look better with age, so left in the pool it ends up first in line for a switch
+        # that lands somewhere nothing works.
+        why = deaf(a["email"])
+        if not why and a["seven"] is not None and a["seven"] >= WEEKLY_AT and not capped(a):
+            why = "weekly at %d%%" % a["seven"]   # a cap is a standing arrangement, and an
+        # account under one reaches 99% only because that cap gave way in the last hours of
+        # its week -- retiring it there would hold it out of the week starting minutes later.
+        # Only an account you cap nothing on is one you meant to spend to the end.
+        if why and (dry or hold_auto(a["email"], why)):
             retired.append("%s (%s)" % (a["name"], why))
             a["held"], a["held_auto"] = True, why
     return decide([a for a in accounts if a["name"] not in skip],
@@ -127,13 +135,17 @@ if verify and not dry:
         notes.append("%s was not asked, %d others were" % (target, len(checked)))
 
     if verdict != "SWITCH" and unasked:
-        # Every account that could be asked is spent, and none of the rest would answer. Room
-        # on file is a poor answer but staying on an account with none is a worse one, so the
-        # best of them is used after all -- and the line says that is what happened.
-        skip.difference_update(unasked)
-        verdict, target, message = plan()
-        if verdict == "SWITCH":
-            notes.append("none of them could be asked, so this is the numbers on file")
+        # Every account that could be asked is spent, and none of the rest would answer. The
+        # numbers on file are not an answer for those: a window past its reset reads 0% with
+        # nobody asked, so an account nothing can read only ever looks emptier, and it is the
+        # stalest of them that rises to the top of the ranking. Nor does landing there fail
+        # gracefully -- nothing reads the live account, so nothing ever trips again, and
+        # rotation sits where it landed until somebody notices.
+        #
+        # So a silence slides to the next candidate, every time, and when the candidates run
+        # out the slot stays where it is. Staying is a state you can see and act on; a switch
+        # onto an account that may not even run is not.
+        notes.append("%s would not answer, so nothing moved there" % " and ".join(unasked))
 
     for n in notes:
         message += "; " + n

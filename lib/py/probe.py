@@ -3,11 +3,38 @@
 The one thing in ccex that costs anything: `usage.py` reads files, this opens the TUI. It
 lives on its own because both `ccex ls --force` and rotation's pre-switch check need it,
 and neither wants the other's argument parsing.
-"""
-import json, os, pty, select, signal, sys, time
 
-from ccexlib import BASE, cfg_for, creds_for, is_base, load, save, seed_into
+Opening the TUI to read `/usage` spends no quota at all. The one call that does is `allowed`,
+a single Haiku turn asked only of an account that has already failed to answer -- because
+that is the only way to hear the difference between an account that was slow and one that is
+not permitted to run.
+"""
+import json, os, pty, re, select, signal, subprocess, sys, time
+
+from ccexlib import (BASE, cfg_for, creds_for, email_for, is_base, load, note_ask,
+                     save, seed_into)
 from usage import cached
+
+MODEL = "claude-haiku-4-5-20251001"   # the cheapest thing that still counts as a session
+DROP = ("CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT")
+
+
+def session_env(d, cfg, **extra):
+    """The environment a `claude` run for this account needs, without what it must not see.
+
+    Anything CLAUDE_CODE_* belongs to the session this is running inside, and a child that
+    inherits it reports itself as that session. CLAUDE_CONFIG_DIR comes from the config path
+    rather than from `is_base`, because with it already exported the live slot's config is
+    inside it, and the child has to be pointed at the same file `cfg_for` just read.
+    """
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CLAUDE_CODE_") and k not in DROP}
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    if cfg == os.path.join(d, ".claude.json"):
+        env["CLAUDE_CONFIG_DIR"] = d
+    env.update(extra)
+    return env
+
 
 def trusted_dir(cfg):
     for path, v in (load(cfg).get("projects") or {}).items():
@@ -23,7 +50,102 @@ def trusted_dir(cfg):
 TIMEOUT = int(os.environ.get("CCEX_PROBE_TIMEOUT") or 50)
 
 
+LAUNCHED = ("ok", "noauth", "timeout")   # the outcomes that mean a session really was started
+
+# An organisation can turn Claude Code off for its accounts, and then nothing on that account
+# works -- not a reading, and not any real session either. It says so in two places, and both
+# are worth catching, because whichever arrives first ends the same way: the account is
+# retired and the switch goes on to the next candidate.
+#
+# The panel says it when /usage is answered at all, as the error painted where the numbers
+# go. The call says it in plain words, and says it even when the panel never answers.
+REFUSED = (b"permission_error", b"notallowedforthisorganization")
+DISABLED = ("disabled claude subscription access", "not allowed for this organization")
+ASK_TIMEOUT = 40
+
+
+def allowed(d):
+    """Whether this account may run Claude Code at all, or None if it did not say.
+
+    One Haiku turn in print mode, and only ever after a launch has already come back with
+    nothing. The /usage panel cannot answer this question: an organisation with subscription
+    access turned off leaves it spinning rather than refusing, asking it again cancels the
+    request in flight, and enough of those rate-limit the account -- after which a refusal
+    and a slow machine are the same blank panel. A real call is refused in seconds, in words.
+
+    This is the one thing in ccex that spends anything, which is why it is on the failure
+    path only. What it buys is worth a few tokens: an account nothing can run on is one
+    rotation would otherwise keep, and keep choosing, because a window past its reset reads
+    0% with nobody asked and stale numbers only ever look emptier.
+    """
+    cfg = cfg_for(d)
+    cwd = trusted_dir(cfg)
+    if not cwd:
+        return None
+    try:
+        r = subprocess.run(["claude", "-p", "hi", "--model", MODEL], cwd=cwd,
+                           env=session_env(d, cfg), timeout=ASK_TIMEOUT,
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return None            # it did not get as far as being told no
+    if not r.returncode:
+        return True
+    said = ((r.stdout or "") + (r.stderr or "")).lower()
+    return False if any(k in said for k in DISABLED) else None
+
+
+# The usage panel, once it is up. Retyping `/usage` behind an open one is not a retry, it is
+# a cancel: the escape that clears the prompt clears the request in flight with it. On an
+# account whose answer takes a few seconds that meant the answer never landed at all, and
+# asking six times in a row got the endpoint to rate-limit the account instead of answering
+# it. The retry is for a `/usage` the TUI was not yet listening for, and it has done its job
+# the moment the panel appears.
+PANEL = (b"loadingusagedata", b"usagestats")
+
+
+def flatten(buf):
+    """What the screen says, with the drawing of it taken out.
+
+    The panel wraps at whatever width it was handed and paints as it goes, so a message in
+    the buffer has escape sequences and line breaks through the middle of it. Only with
+    those gone is there a string to look for.
+    """
+    return re.sub(rb"\x1b\[[0-9;?]*[a-zA-Z]|\s+", b"", buf).lower()
+
+
+def refused(buf):
+    """Whether the panel came back refusing this account, rather than not coming back."""
+    return any(k in flatten(buf) for k in REFUSED)
+
+
+def showing(buf):
+    """Whether the usage panel is up, so that asking for it again would only close it."""
+    return any(k in flatten(buf) for k in PANEL)
+
+
 def probe(d, timeout=None):
+    """Launch this account and read it, keeping a record of whether the launch worked.
+
+    Every caller comes through here -- rotation asking before a switch, `ccex ls --force`,
+    the age-out read -- and the record has to count all of them, because the thing it is
+    for is telling an account that cannot be launched from one that merely was not this
+    time. Only outcomes from an actual launch count: no trusted folder and no login are
+    facts about this machine and this slot, and neither of them asked the account anything.
+
+    A launch that comes back empty is asked one more question, because "it did not answer"
+    covers both an account that was slow and an account that is not allowed to run at all,
+    and only the second one should cost it its place in the pool.
+    """
+    st = launch(d, timeout)
+    if st == "timeout" and allowed(d) is False:
+        st = "noauth"          # it was not too slow to answer; it was told it may not
+    if st in LAUNCHED:
+        note_ask(email_for(d), st)
+    return st
+
+
+def launch(d, timeout=None):
     """Launch the real `claude` TUI on this account, open /usage, quit. No inference, no cost.
 
     CCEX_PROBE_TIMEOUT moves the ceiling. Rotation may ask up to three accounts before it
@@ -42,24 +164,17 @@ def probe(d, timeout=None):
         return "nologin"
     pid, fd = pty.fork()
     if pid == 0:
-        for k in list(os.environ):
-            if k.startswith("CLAUDE_CODE_") or k in ("CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT"):
-                os.environ.pop(k, None)
-        # From the config path, not from is_base: with CLAUDE_CONFIG_DIR exported the live
-        # slot's config is inside it, and the child has to be pointed at the same file
-        # cfg_for just read, or it reads a stale ~/.claude.json instead.
-        if cfg == os.path.join(d, ".claude.json"):
-            os.environ["CLAUDE_CONFIG_DIR"] = d
-        else:
-            os.environ.pop("CLAUDE_CONFIG_DIR", None)
-        os.environ.update(TERM="xterm-256color", COLUMNS="120", LINES="45")
+        env = session_env(d, cfg, TERM="xterm-256color", COLUMNS="120", LINES="45")
+        os.environ.clear()          # built first: session_env reads the environment it replaces
+        os.environ.update(env)
         try:
             os.chdir(cwd)
-            os.execvp("claude", ["claude", "--model", "claude-haiku-4-5-20251001"])
+            os.execvp("claude", ["claude", "--model", MODEL])
         except Exception:
             os._exit(127)
     start = time.time()
     sent, refreshed, quit_at, mtime, buf, ready_at, tries = set(), False, None, 0, b"", None, 0
+    denied = panel = False
     while time.time() - start < timeout:
         r, _, _ = select.select([fd], [], [], 0.3)
         if r:
@@ -73,7 +188,10 @@ def probe(d, timeout=None):
         el = time.time() - start
         if ready_at is None and (b"\xe2\x9d\xaf" in buf or b"shift+tab" in buf):
             ready_at = time.time()          # the prompt is up; the TUI is listening
-        if not refreshed and ready_at and time.time() - ready_at > 1.5 and tries * 7 < el - 1:
+        panel = panel or showing(buf)
+        denied = denied or refused(buf)
+        if not refreshed and not panel and ready_at and time.time() - ready_at > 1.5 \
+                and tries * 7 < el - 1:
             os.write(fd, b"\x1b/usage\r")  # esc first, so a retry never appends to a live prompt
             tries += 1
             sent.add("usage")
@@ -87,8 +205,12 @@ def probe(d, timeout=None):
             if m != mtime:
                 mtime = m
                 refreshed = (cached(d).get("fetchedAtMs") or 0) > before
-        if (refreshed or el > timeout - 6) and "quit" not in sent:
-            os.write(fd, b"/exit\r"); sent.add("quit"); quit_at = time.time()
+        if (refreshed or denied or el > timeout - 6) and "quit" not in sent:
+            try:
+                os.write(fd, b"/exit\r")
+            except OSError:
+                break              # it has already gone; there is nothing left to ask it
+            sent.add("quit"); quit_at = time.time()
         if quit_at and time.time() - quit_at > 2:
             break
     for sig in (signal.SIGTERM, signal.SIGKILL):
@@ -104,10 +226,15 @@ def probe(d, timeout=None):
         os.close(fd)
     except OSError:
         pass
-    return "ok" if (cached(d).get("fetchedAtMs") or 0) > before else "timeout"
+    if (cached(d).get("fetchedAtMs") or 0) > before:
+        return "ok"
+    return "noauth" if denied else "timeout"
 
 
-NOTE = {"untrusted": "no trusted project dir - launch `claude` once in one of your project folders first; showing cached numbers",
+NOTE = {"noauth": "not allowed to use Claude Code - its organisation has disabled "
+                  "subscription access, so nothing can read it and nothing can run on it; "
+                  "showing cached numbers",
+        "untrusted": "no trusted project dir - launch `claude` once in one of your project folders first; showing cached numbers",
         "nologin": "not logged in",
         "timeout": "limits check timed out; showing cached numbers",
         "unhooked": "a session is open on this account, so nothing was launched. For live numbers put "

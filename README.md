@@ -292,11 +292,30 @@ launch, no folder it trusts, a check that times out — because an account that 
 is a better answer than one that cannot. Up to three are asked; asking is a session each,
 and three is already most of a minute.
 
-Only when *none* of them will answer does it fall back to the numbers on file, and the line
-says that is what happened. Broken check machinery must not quietly empty the pool — staying
-on an account with no room left is worse than moving to one that probably has some. An
-account that has never been measured is the exception, and gets no fallback: there are no
-numbers to fall back to.
+When *none* of them will answer, the slot stays where it is. The numbers on file are not a
+fallback for an account nothing can read: a window past its reset reads 0% with nobody asked,
+so such an account only ever *looks* emptier, and it is the stalest of them that rises to the
+top of the ranking. Landing there does not fail gracefully either — nothing reads the live
+account, so nothing ever trips again and rotation sits where it landed. Staying put is a
+state you can see and act on; a switch onto an account that may not even run is not.
+
+Two silences are told apart, because they need different answers. An account that goes quiet
+three times running, while some *other* account has answered inside the last day, comes out
+of the pool — the machine plainly works and this account does not. Without that witness
+nothing is retired, so a locked keychain cannot quietly empty the fleet.
+
+The other is not a silence at all. An organisation can turn Claude Code off for its accounts,
+and then the account is refused rather than slow — in words, and the same words every time.
+It says so in two places: the usage panel paints a `permission_error` where the numbers go,
+and `claude -p` answers *"Your organization has disabled Claude subscription access for
+Claude Code"* and exits non-zero. Either is caught, and either retires the account on the
+first look; there is nothing to count and no witness to wait for. That second one is asked
+only of an account whose launch already came back empty — one Haiku turn, the one thing in
+ccex that spends anything — because the panel cannot answer the question: an account in this
+state leaves it spinning rather than refusing, and asking again cancels the request in
+flight, which eventually rate-limits the account into looking exactly like a slow machine.
+
+`ccex pool in` puts a retired account back and clears the record that retired it.
 
 Two things stop a launch, and folder trust is only the obvious one. A profile that has never
 been onboarded stops on the theme picker, so `/usage` is never typed and the check waits out
