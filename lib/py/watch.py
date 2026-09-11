@@ -523,8 +523,11 @@ class View:
                     elif left <= GRACE:
                         row.add("new".ljust(clock), GREEN)
                     else:
-                        row.add(hms(left) if secs else hm(left),
-                                YELLOW if left < 600 else "", clock)
+                        # The week is the window worth waiting out, so its last day is good
+                        # news, not a warning: green once the reset is inside 24h.
+                        tint = GREEN if (key == "seven" and left < 86400) \
+                            else YELLOW if left < 600 else ""
+                        row.add(hms(left) if secs else hm(left), tint, clock)
                 if n == 0:
                     row.add(GAP)
             # Why rotation would or would not choose this account, in words: the marks it
