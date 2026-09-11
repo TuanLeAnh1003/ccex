@@ -355,12 +355,31 @@ fake_claude() {
   cat > "$HOME/fakebin/claude" <<'FAKE'
 #!/usr/bin/env bash
 printf 'x' >> "$HOME/fake-calls"
-python3 - <<'PY'
-import json, os, time
+python3 - "$@" <<'PY'
+import json, os, sys, time
 d = os.environ.get("CLAUDE_CONFIG_DIR")
 cfg = os.path.join(d, ".claude.json") if d else os.path.expanduser("~/.claude.json")
 c = json.load(open(cfg))
 email = (c.get("oauthAccount") or {}).get("emailAddress")
+# The two places an organisation says Claude Code is off for this account, word for word,
+# and each on its own so a test can prove either is enough by itself. `claude -p` says it in
+# prose and exits non-zero; the TUI paints it where the usage numbers would have gone.
+def listed(f):
+    try:
+        return email in json.load(open(os.path.expanduser(f)))
+    except OSError:
+        return False
+if "-p" in sys.argv:
+    if listed("~/fake-disabled.json"):
+        print("Your organization has disabled Claude subscription access for Claude Code "
+              "\u00b7 Use an Anthropic API key instead, or ask your admin to enable access")
+        raise SystemExit(1)
+    raise SystemExit
+if listed("~/fake-refused.json"):
+    print('Error: Failed to load usage data: {"type":"error","error":{"type":'
+          '"permission_error","message":"OAuth authentication is currently not '
+          'allowed for this organization."}}')
+    raise SystemExit
 say = json.load(open(os.path.expanduser("~/fake-usage.json"))).get(email)
 if say:
     def when(secs):
@@ -384,6 +403,8 @@ c = json.load(open(sys.argv[1]))
 c["projects"] = {sys.argv[2]: {"hasTrustDialogAccepted": True}}
 json.dump(c, open(sys.argv[1], "w"))' "$HOME/.claude.json" "$HOME"
   printf '%s' "$1" > "$HOME/fake-usage.json"
+  printf '%s' "${2:-[]}" > "$HOME/fake-refused.json"    # the panel paints a refusal
+  printf '%s' "${3:-[]}" > "$HOME/fake-disabled.json"   # `claude -p` is told no
   : > "$HOME/fake-calls"
 }
 
@@ -433,8 +454,8 @@ absent "so the silent one is not used"              "b@example.com"  live_email
 teardown; setup                 # no `claude` to launch at all: nothing can be asked
 age_numbers
 out=$("$CCEX" rotate --at 80 2>&1)
-t  "with nothing answering it says so"        "none of them could be asked" echo "$out"
-t  "and falls back to the numbers on file"    "b@example.com"        live_email
+t  "with nothing answering it says so"        "would not answer, so nothing moved" echo "$out"
+t  "and the slot stays where it was"          "a@example.com"        live_email
 rlog() { cat "$CC_PROFILE_ROOT/.usage/rotate.log" 2>&1; }
 step_trail() { cat "$CC_PROFILE_ROOT/.usage/.step" 2>/dev/null || echo nothing; }
 t  "the log records the probe starting"       "asking bee"           rlog
@@ -864,6 +885,55 @@ t  "and says how long it was guessing for"    "29m blind from 36% at 112.4%/h"  
 t  "a window that reset while blind is not"   "reset while blind"   scored_says reset
 t  "a scored guess is not scored twice"       "gone"                scored_says hit
 t  "the log is a subcommand"                  "estimate 90% vs actual 88%"  "$CCEX" rotate --guesses
+
+echo "an account nothing can run on"
+# The account that cannot be read is the account that looks emptiest: a window past its reset
+# reads 0% with nobody asked, so it climbs the ranking on its own staleness. Landing there is
+# a switch onto something no session can start on -- and rotation would stay there, because
+# nothing would ever read it again.
+pool_has() { cat "$CC_PROFILE_ROOT/.pool.json" 2>/dev/null || echo none; }
+
+teardown; setup                 # bee's launch says nothing; the call it is asked next says no
+fake_claude '{"c@example.com": [40, 30]}' '[]' '["b@example.com"]'
+age_numbers
+out=$("$CCEX" rotate --at 80 2>&1)
+t      "a refused call is told from a timeout" "noauth"             echo "$out"
+absent "and the slot does not move there"      "b@example.com"      live_email
+t      "it slides to the next candidate"       "c@example.com"      live_email
+t      "one look is enough to retire it"       "not allowed to use Claude Code" pool_has
+out=$("$CCEX" rotate --at 80 2>&1)
+absent "so the next tick does not ask again"   "asking bee"         echo "$out"
+t      "putting it back is allowed"            "back in the rotation" "$CCEX" pool in bee
+absent "and clears the record that retired it" "b@example.com"      pool_has
+
+teardown; setup                 # this time the panel is the one that refuses, and the call is fine
+fake_claude '{"c@example.com": [40, 30]}' '["b@example.com"]' '[]'
+age_numbers
+out=$("$CCEX" rotate --at 80 2>&1)
+t      "the panel's refusal stands on its own"  "noauth"            echo "$out"
+t      "and the next candidate takes the slot"  "c@example.com"     live_email
+t      "it is retired on that alone"            "not allowed to use Claude Code" pool_has
+
+teardown; setup                 # bee only goes quiet, and it is the one account with room
+spend_five cee 99
+fake_claude '{"c@example.com": [99, 30]}'
+age_numbers
+out=$("$CCEX" rotate --at 80 2>&1)
+t      "a silence never takes the slot"        "would not answer, so nothing moved" echo "$out"
+absent "so the slot stays where it is"         "b@example.com"      live_email
+absent "and one silence retires nothing"       "b@example.com"      pool_has
+"$CCEX" ls cee --force >/dev/null 2>&1      # the witness: a launch on this machine does work
+"$CCEX" rotate --at 80 >/dev/null 2>&1
+"$CCEX" rotate --at 80 >/dev/null 2>&1
+t      "three silences in a row retire it"     "no answer in 3 launches" pool_has
+
+teardown; setup                 # nothing on this machine answers: that is not bee's fault
+fake_claude '{}'
+age_numbers
+"$CCEX" rotate --at 80 >/dev/null 2>&1
+"$CCEX" rotate --at 80 >/dev/null 2>&1
+"$CCEX" rotate --at 80 >/dev/null 2>&1
+t      "with no witness nothing is retired"    "none"               pool_has
 
 echo "a switch you typed"
 teardown; setup                 # cee is spent; naming it anyway must say so before it moves

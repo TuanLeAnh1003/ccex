@@ -422,6 +422,82 @@ def hold_auto(email, why):
     return True
 
 
+ASKED = os.path.join(USAGE_DIR, ".asked.json")   # how the last launch on each account went
+DEAF = 3        # launches in a row with no answer before an account counts as unreadable
+WITNESS = 86400   # a launch that worked this recently is proof launching still works here
+REFUSED = ("noauth",)   # probe outcomes that are the account answering, not failing to
+
+
+def note_ask(email, st):
+    """Record how a launch on this account went, and hand back its failures in a row.
+
+    An account that can never answer looks exactly like one that did not answer this time:
+    the probe times out either way, and no number on file ever says which it was. Only
+    repetition tells them apart, and a single tick has one launch in it -- so the count has
+    to outlive the run. One answer clears it, and `deaf` reads it back.
+    """
+    os.makedirs(USAGE_DIR, exist_ok=True)
+    m = load(ASKED)
+    streaks = m.setdefault("streaks", {})
+    if st == "ok":
+        streaks.pop(email, None)
+        # Who answered and when, kept whatever the answer was: `deaf` needs to know that
+        # launching a session still works on this machine, not what the session said.
+        m["answered"] = {"who": email, "at": time.time()}
+        save(ASKED, m)
+        return 0
+    was = streaks.get(email) or {}
+    streaks[email] = {"n": (was.get("n") or 0) + 1, "last": st,
+                      "since": was.get("since") or time.time()}
+    save(ASKED, m)
+    return streaks[email]["n"]
+
+
+def forget_ask(email):
+    """Give this account a clean start. `ccex pool in` on a retired account is saying so."""
+    m = load(ASKED)
+    if (m.get("streaks") or {}).pop(email, None) is not None:
+        save(ASKED, m)
+
+
+def deaf(email):
+    """Why this account should be treated as unreadable, or None while it might yet answer.
+
+    One case is settled by the launch itself: an organisation with OAuth turned off refuses
+    the request in so many words, and an account nothing is allowed to run on is no use to
+    rotation whatever its numbers say. The rest is silence, and silence has to be read.
+
+    Two silences have to be told apart. An account whose plan has no Claude Code on it will
+    never answer however often it is asked, and its numbers go stale where nothing can see
+    it: a window past its reset reads 0% by arithmetic, so an account nobody can measure
+    comes out looking emptier every hour and rises to the top of the ranking on it. That one
+    belongs out of the pool.
+
+    A machine whose keychain is locked answers for nobody, and retiring the fleet over one
+    bad hour would leave a list to put back by hand. So the count alone is not enough: some
+    other account has to have answered lately, which is the proof that launching a session
+    still works here and it is this one that does not.
+
+    Retiring is the slower of the two answers rotation has to a silence. The quick one is
+    not switching there, which it does from the first one; DEAF is how many it takes before
+    the account also comes off the list, so that nothing keeps spending a session a tick on
+    an account that has stopped replying.
+    """
+    m = fresh(ASKED)
+    s = (m.get("streaks") or {}).get(email) or {}
+    n = s.get("n") or 0
+    if s.get("last") in REFUSED:
+        # Answered, and the answer was no. There is nothing to count and nothing to witness:
+        # the server named this account, and it will name it again tomorrow.
+        return "not allowed to use Claude Code"
+    if n < DEAF:
+        return None
+    ok = m.get("answered") or {}
+    if ok.get("who") in (None, email) or time.time() - (ok.get("at") or 0) > WITNESS:
+        return None
+    return "no answer in %d launch%s" % (n, "" if n == 1 else "es")
+
+
 def caps(d):
     """This account's own out-of-room percentages, per window, or None where it has none.
 
