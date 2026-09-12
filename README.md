@@ -299,17 +299,18 @@ top of the ranking. Landing there does not fail gracefully either — nothing re
 account, so nothing ever trips again and rotation sits where it landed. Staying put is a
 state you can see and act on; a switch onto an account that may not even run is not.
 
-Two silences are told apart, because they need different answers. An account that goes quiet
-three times running, while some *other* account has answered inside the last day, comes out
-of the pool — the machine plainly works and this account does not. Without that witness
-nothing is held back, so a locked keychain cannot quietly empty the fleet.
+A silence is only ever passed over. It never takes an account out of the pool, however often
+it happens: silence has too many causes — a locked keyring, a machine with nothing spare to
+start a TUI with — and none of them are the account saying no. Holding accounts for it would
+let one bad hour empty the fleet.
 
-The other is not a silence at all. An organisation can turn Claude Code off for its accounts,
+A refusal is not a silence. An organisation can turn Claude Code off for its accounts,
 and then the account is refused rather than slow — in words, and the same words every time.
 It says so in two places: the usage panel paints a `permission_error` where the numbers go,
 and `claude -p` answers *"Your organization has disabled Claude subscription access for
 Claude Code"* and exits non-zero. Either is caught, and either holds the account out on the
-first look; there is nothing to count and no witness to wait for. That second one is asked
+first look — this is the one thing rotation acts on the first time it sees it, because it is
+the one answer that will be the same tomorrow. That second one is asked
 only of an account whose launch already came back empty — one Haiku turn, the one thing in
 ccex that spends anything — because the panel cannot answer the question: an account in this
 state leaves it spinning rather than refusing, and asking again cancels the request in
@@ -510,9 +511,10 @@ out of the pool — only reached by itself. There is no second word for it and n
 mark. `ccex pool in` is the way back either way: an account you spent to the end of its
 week is one you meant to spend, and when it rejoins is your call, not a timer's.
 
-An account under a cap is never taken out this way. Its cap is a standing arrangement, and it
-only reaches 99% because that cap gave way in the last hours of its week (see
-[Caps](#caps)) — taking it out there would hold it out of the week starting minutes later.
+A cap makes no difference to this. An account under one only reaches 99% because that cap
+gave way in the last hours of its week (see [Caps](#caps)), so it is a spent week either
+way — and a spent week is a spent week. It does mean a capped account comes out of the pool
+in the last hours of most weeks, and `ccex pool in` is how it goes back.
 
 Only the week does this. Running a 5-hour window down is ordinary rotation — it refills
 while you work — so nothing is taken out for it. And rotation still moves you *off* a held

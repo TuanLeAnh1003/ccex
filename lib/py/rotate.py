@@ -1,8 +1,8 @@
 """Print rotation's decision as one tab-separated line for `lib/rotate.sh`. Reads `ccex ls --json`."""
 import json, os, sys, time
 
-from ccexlib import USAGE_DIR, deaf, hm, hold_auto, load, save, slots, step
-from decide import FIVE_AT, FIVE_HOUR, WEEKLY_AT, cap, capped, decide, ranked, reads
+from ccexlib import USAGE_DIR, barred, hm, hold_auto, load, save, slots, step
+from decide import FIVE_AT, FIVE_HOUR, WEEKLY_AT, cap, decide, ranked, reads
 
 accounts = json.load(sys.stdin)
 argv = sys.argv[1:]
@@ -50,16 +50,14 @@ def plan():
     for a in accounts:
         if a.get("held"):
             continue
-        # An account that will not answer goes whatever its caps say: a cap is about how far
-        # to spend an account, and this one cannot be read at all. Its numbers only look
-        # better with age, so left in the pool it ends up first in line for a switch that
-        # lands somewhere nothing works.
-        why = deaf(a["email"])
-        if not why and a["seven"] is not None and a["seven"] >= WEEKLY_AT and not capped(a):
-            why = "weekly at %d%%" % a["seven"]   # a cap is a standing arrangement, and an
-        # account under one reaches 99% only because that cap gave way in the last hours of
-        # its week -- pulling it there would hold it out of the week starting minutes later.
-        # Only an account you cap nothing on is one you meant to spend to the end.
+        # Two ways out of the pool, and a cap changes neither. A cap says how far to spend an
+        # account; it says nothing about one that is not allowed to run at all, and nothing
+        # about one whose week is gone. Being refused is the more urgent of the two: those
+        # numbers only look better with age, so left in the pool that account ends up first
+        # in line for a switch that lands somewhere nothing works.
+        why = barred(a["email"]) or (
+            "weekly at %d%%" % a["seven"]
+            if a["seven"] is not None and a["seven"] >= WEEKLY_AT else None)
         if why and (dry or hold_auto(a["email"], why)):
             pulled.append("%s (%s)" % (a["name"], why))
             a["held"], a["held_auto"] = True, why
