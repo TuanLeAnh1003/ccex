@@ -401,13 +401,17 @@ def held(d):
 
 
 def held_auto(d):
-    """Why rotation retired this account itself, if it did -- `ccex pool in` is the way back."""
+    """Why rotation held this account itself, if it did -- `ccex pool in` is the way back.
+
+    The same state as one you held by hand, and shown as the same word: an account out of
+    the pool is out of the pool. This is only the sentence that says how it got there.
+    """
     v = fresh(POOL).get(email_for(d))
     return v.get("auto") if isinstance(v, dict) else None
 
 
 def hold_auto(email, why):
-    """Retire an account that has spent its week. It stays out until you put it back.
+    """Take an account out of the pool unasked. It stays out until you put it back.
 
     A 5-hour window refills while you work, so running one down is ordinary rotation. A
     week does not: an account at the end of its week is no use again for days, and coming
@@ -416,7 +420,7 @@ def hold_auto(email, why):
     """
     m = load(POOL)
     if m.get(email):
-        return False                  # already out, by your hand or an earlier retirement
+        return False                  # already out, by your hand or by an earlier tick
     m[email] = {"auto": why, "since": time.strftime("%F %T")}
     save(POOL, m)
     return True
@@ -454,7 +458,7 @@ def note_ask(email, st):
 
 
 def forget_ask(email):
-    """Give this account a clean start. `ccex pool in` on a retired account is saying so."""
+    """Give this account a clean start. `ccex pool in` on a held account is saying so."""
     m = load(ASKED)
     if (m.get("streaks") or {}).pop(email, None) is not None:
         save(ASKED, m)
@@ -478,10 +482,10 @@ def deaf(email):
     other account has to have answered lately, which is the proof that launching a session
     still works here and it is this one that does not.
 
-    Retiring is the slower of the two answers rotation has to a silence. The quick one is
-    not switching there, which it does from the first one; DEAF is how many it takes before
-    the account also comes off the list, so that nothing keeps spending a session a tick on
-    an account that has stopped replying.
+    Holding it back is the slower of the two answers rotation has to a silence. The quick
+    one is not switching there, which it does from the first one; DEAF is how many it takes
+    before the account also comes off the list, so that nothing keeps spending a session a
+    tick on an account that has stopped replying.
     """
     m = fresh(ASKED)
     s = (m.get("streaks") or {}).get(email) or {}

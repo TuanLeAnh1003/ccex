@@ -17,7 +17,7 @@ CURRENT = 300       # numbers this recent are worth nothing extra to re-ask for
 NEAR = 5            # percentage points below the cap that count as about to switch
 AHEAD = os.path.join(USAGE_DIR, ".readahead.json")   # what was already read for this window
 skip = set()        # candidates this run has ruled out, so re-deciding does not offer them again
-retired = []        # accounts plan() took out of the pool, in the order it did it
+pulled = []         # accounts plan() took out of the pool, in the order it did it
 
 
 def opened(live):
@@ -40,9 +40,9 @@ def asked_since(cand, since):
 
 
 def plan():
-    """Retire what has spent its week or stopped answering, then decide. Both, because
-    verification can turn up the number -- or the silence -- that retires an account, and it
-    should retire it like any other would.
+    """Hold back what has spent its week or stopped answering, then decide. Both, because
+    verification can turn up the number -- or the silence -- that takes an account out of the
+    pool, and it should go out the same way any other would.
 
     Only verification can offer an unmeasured account, so `blind` follows it exactly: with
     nothing going to read that account first, being unmeasured has to keep it out.
@@ -50,18 +50,18 @@ def plan():
     for a in accounts:
         if a.get("held"):
             continue
-        # An account that will not answer is retired whatever its caps say: a cap is about
-        # how far to spend an account, and this one cannot be read at all. Its numbers only
-        # look better with age, so left in the pool it ends up first in line for a switch
-        # that lands somewhere nothing works.
+        # An account that will not answer goes whatever its caps say: a cap is about how far
+        # to spend an account, and this one cannot be read at all. Its numbers only look
+        # better with age, so left in the pool it ends up first in line for a switch that
+        # lands somewhere nothing works.
         why = deaf(a["email"])
         if not why and a["seven"] is not None and a["seven"] >= WEEKLY_AT and not capped(a):
             why = "weekly at %d%%" % a["seven"]   # a cap is a standing arrangement, and an
         # account under one reaches 99% only because that cap gave way in the last hours of
-        # its week -- retiring it there would hold it out of the week starting minutes later.
+        # its week -- pulling it there would hold it out of the week starting minutes later.
         # Only an account you cap nothing on is one you meant to spend to the end.
         if why and (dry or hold_auto(a["email"], why)):
-            retired.append("%s (%s)" % (a["name"], why))
+            pulled.append("%s (%s)" % (a["name"], why))
             a["held"], a["held_auto"] = True, why
     return decide([a for a in accounts if a["name"] not in skip],
                   at, blind=verify and not dry)
@@ -194,8 +194,8 @@ if verify and not dry and verdict == "STAY":
             else:
                 message += "; %s could not be read ahead of the switch (%s)" % (n, st)
 
-if retired:
-    message += "; out of the pool until `ccex pool in`: " + ", ".join(dict.fromkeys(retired))
+if pulled:
+    message += "; out of the pool until `ccex pool in`: " + ", ".join(dict.fromkeys(pulled))
 # `lib/rotate.sh` clears this once the credential has moved. Leaving it set is deliberate:
 # the move itself is the part the view should be showing when it happens.
 if verdict == "SWITCH":

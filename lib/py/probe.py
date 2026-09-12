@@ -55,7 +55,7 @@ LAUNCHED = ("ok", "noauth", "timeout")   # the outcomes that mean a session real
 # An organisation can turn Claude Code off for its accounts, and then nothing on that account
 # works -- not a reading, and not any real session either. It says so in two places, and both
 # are worth catching, because whichever arrives first ends the same way: the account is
-# retired and the switch goes on to the next candidate.
+# held out of the pool and the switch goes on to the next candidate.
 #
 # The panel says it when /usage is answered at all, as the error painted where the numbers
 # go. The call says it in plain words, and says it even when the panel never answers.

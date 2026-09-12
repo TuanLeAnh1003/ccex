@@ -270,15 +270,15 @@ PYEOF
 }
 spend_week "$HOME/.claude.json" 99
 t  "a spent week is over the line" "so ->"                 "$CCEX" rotate --at 80 --no-launch
-t  "and that account is retired"   "weekly at 99%"         cat "$CC_PROFILE_ROOT/.pool.json"
-t  "ls marks it X"                 "X"                     bash -c '"$1" ls | awk "/a@example.com/ {print substr(\$0, 5, 2)}"' _ "$CCEX"
+t  "and that account is held out"  "weekly at 99%"         cat "$CC_PROFILE_ROOT/.pool.json"
+t  "ls marks it x, as any hold"    "x"                     bash -c '"$1" ls | awk "/a@example.com/ {print substr(\$0, 5, 2)}"' _ "$CCEX"
 absent "rotation will not go back to it" "a@example.com"    "$CCEX" rotate --at 1 -n --no-launch
 t  "pool in is the way back"       "back in the rotation"  "$CCEX" pool in a@example.com
 teardown; setup
 spend_week "$HOME/.claude.json" 99
-absent "a dry run retires nothing" "a@example.com"          bash -c '"$1" rotate --at 80 -n --no-launch >/dev/null; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
+absent "a dry run holds nothing"   "a@example.com"          bash -c '"$1" rotate --at 80 -n --no-launch >/dev/null; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
 teardown; setup                 # a's week is untouched here: only its 5-hour window is spent
-absent "a spent 5h window does not retire" "a@example.com"  bash -c '"$1" rotate --at 45 --no-launch >/dev/null 2>&1; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
+absent "a spent 5h window holds nothing"   "a@example.com"  bash -c '"$1" rotate --at 45 --no-launch >/dev/null 2>&1; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
 
 rank_says() {   # the order is arithmetic too: a synthetic fleet, no accounts, no clock
   CCEX_BASE="$HOME/.claude" CCEX_ROOT="$CC_PROFILE_ROOT" \
@@ -344,7 +344,7 @@ t  "nor does an unmeasured week"     "60/75"   cap_says none
 teardown; setup
 spend_week "$HOME/.claude.json" 99
 "$CCEX" pool cap a@example.com --weekly 90 >/dev/null
-absent "an account that caps its own week is never retired" "a@example.com" \
+absent "an account that caps its own week is never held out" "a@example.com" \
   bash -c '"$1" rotate --at 80 --no-launch >/dev/null 2>&1; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
 
 echo "verifying before the switch"
@@ -900,11 +900,11 @@ out=$("$CCEX" rotate --at 80 2>&1)
 t      "a refused call is told from a timeout" "noauth"             echo "$out"
 absent "and the slot does not move there"      "b@example.com"      live_email
 t      "it slides to the next candidate"       "c@example.com"      live_email
-t      "one look is enough to retire it"       "not allowed to use Claude Code" pool_has
+t      "one look is enough to hold it out"     "not allowed to use Claude Code" pool_has
 out=$("$CCEX" rotate --at 80 2>&1)
 absent "so the next tick does not ask again"   "asking bee"         echo "$out"
 t      "putting it back is allowed"            "back in the rotation" "$CCEX" pool in bee
-absent "and clears the record that retired it" "b@example.com"      pool_has
+absent "and clears the record that held it"    "b@example.com"      pool_has
 
 teardown; setup                 # this time the panel is the one that refuses, and the call is fine
 fake_claude '{"c@example.com": [40, 30]}' '["b@example.com"]' '[]'
@@ -912,7 +912,7 @@ age_numbers
 out=$("$CCEX" rotate --at 80 2>&1)
 t      "the panel's refusal stands on its own"  "noauth"            echo "$out"
 t      "and the next candidate takes the slot"  "c@example.com"     live_email
-t      "it is retired on that alone"            "not allowed to use Claude Code" pool_has
+t      "it is held out on that alone"           "not allowed to use Claude Code" pool_has
 
 teardown; setup                 # bee only goes quiet, and it is the one account with room
 spend_five cee 99
@@ -921,11 +921,11 @@ age_numbers
 out=$("$CCEX" rotate --at 80 2>&1)
 t      "a silence never takes the slot"        "would not answer, so nothing moved" echo "$out"
 absent "so the slot stays where it is"         "b@example.com"      live_email
-absent "and one silence retires nothing"       "b@example.com"      pool_has
+absent "and one silence holds nothing"         "b@example.com"      pool_has
 "$CCEX" ls cee --force >/dev/null 2>&1      # the witness: a launch on this machine does work
 "$CCEX" rotate --at 80 >/dev/null 2>&1
 "$CCEX" rotate --at 80 >/dev/null 2>&1
-t      "three silences in a row retire it"     "no answer in 3 launches" pool_has
+t      "three silences in a row hold it out"   "no answer in 3 launches" pool_has
 
 teardown; setup                 # nothing on this machine answers: that is not bee's fault
 fake_claude '{}'
@@ -933,7 +933,7 @@ age_numbers
 "$CCEX" rotate --at 80 >/dev/null 2>&1
 "$CCEX" rotate --at 80 >/dev/null 2>&1
 "$CCEX" rotate --at 80 >/dev/null 2>&1
-t      "with no witness nothing is retired"    "none"               pool_has
+t      "with no witness nothing is held out"   "none"               pool_has
 
 echo "a switch you typed"
 teardown; setup                 # cee is spent; naming it anyway must say so before it moves
