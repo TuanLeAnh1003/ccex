@@ -166,7 +166,7 @@ never arrive.
 Each row is one account by email, then each window as a percentage, a bar, and how long
 until it resets. `▶` marks the account you are billing and `›` the one the arrows are on.
 `ROTATION` answers the only question the old `x`/`c`/`X` marks were answering — whether
-rotation may choose this account — in words: `in pool`, `held`, `retired`, or `cap 50/30`.
+rotation may choose this account — in words: `in pool`, `held`, or `cap 50/30`.
 
 | Key | |
 | --- | --- |
@@ -174,7 +174,7 @@ rotation may choose this account — in words: `in pool`, `held`, `retired`, or 
 | `0`–`9` | or type an account's number, `y` to confirm (backspace edits) |
 | `a` | add an account — the browser login runs here, then the table has it |
 | `c` | cap the selected account: type the 5-hour percentage, `enter`, then the weekly one (`-` leaves a window uncapped) |
-| `→` / `←` | take it out of the rotation pool, or put it back — the way to revive a retired account |
+| `→` / `←` | take it out of the rotation pool, or put it back — including one rotation held itself |
 | `+` / `-` | re-pace the data tick (10s, 30s, 1m, 5m, 15m, 30m) |
 | `r` | re-read everything now, `/proc` included |
 | `q` | quit |
@@ -302,20 +302,20 @@ state you can see and act on; a switch onto an account that may not even run is 
 Two silences are told apart, because they need different answers. An account that goes quiet
 three times running, while some *other* account has answered inside the last day, comes out
 of the pool — the machine plainly works and this account does not. Without that witness
-nothing is retired, so a locked keychain cannot quietly empty the fleet.
+nothing is held back, so a locked keychain cannot quietly empty the fleet.
 
 The other is not a silence at all. An organisation can turn Claude Code off for its accounts,
 and then the account is refused rather than slow — in words, and the same words every time.
 It says so in two places: the usage panel paints a `permission_error` where the numbers go,
 and `claude -p` answers *"Your organization has disabled Claude subscription access for
-Claude Code"* and exits non-zero. Either is caught, and either retires the account on the
+Claude Code"* and exits non-zero. Either is caught, and either holds the account out on the
 first look; there is nothing to count and no witness to wait for. That second one is asked
 only of an account whose launch already came back empty — one Haiku turn, the one thing in
 ccex that spends anything — because the panel cannot answer the question: an account in this
 state leaves it spinning rather than refusing, and asking again cancels the request in
 flight, which eventually rate-limits the account into looking exactly like a slow machine.
 
-`ccex pool in` puts a retired account back and clears the record that retired it.
+`ccex pool in` puts a held account back and clears the record that took it out.
 
 Two things stop a launch, and folder trust is only the obvious one. A profile that has never
 been onboarded stops on the theme picker, so `/usage` is never typed and the check waits out
@@ -473,8 +473,8 @@ $ ccex pool out 4
 ccex: ada.lovelace@gmail.com is out of the rotation pool; its login is untouched
 ```
 
-A held account is marked `x` in `ccex ls` (`X` when rotation retired it itself, below) and
-is never chosen as a rotation destination.
+A held account is marked `x` in `ccex ls` — the same mark whether you held it or rotation
+did (below) — and is never chosen as a rotation destination.
 Its login is kept, so `ccex pool in 4` puts it straight back with no browser round-trip —
 useful for a personal account you don't want work billed to, or one you're saving.
 
@@ -502,21 +502,21 @@ ccex: ada@example.com is at 34% 5h / 99% weekly (weekly over 99%), so -> ada@acm
 
 $ ccex ls
 #   ACCOUNT      EMAIL              TIER    ...  5H                     WEEKLY
-1 X default      ada@example.com    max_5x  ...  ███░░░░░░░   34% 2h11m █████████░   99% 5d 4h11m
+1 x default      ada@example.com    max_5x  ...  ███░░░░░░░   34% 2h11m █████████░   99% 5d 4h11m
 ```
 
-A retired account is marked `X` — the same column as the `x` from `ccex pool out`, because
-it is the same state, reached by itself. `ccex pool in` is the way back, the same as for a
-hold you placed by hand: an account you spent to the end of its week is one you meant to
-spend, and when it rejoins is your call, not a timer's.
+It is marked `x`, the same as an account you held by hand, because it is the same state —
+out of the pool — only reached by itself. There is no second word for it and no second
+mark. `ccex pool in` is the way back either way: an account you spent to the end of its
+week is one you meant to spend, and when it rejoins is your call, not a timer's.
 
-An account under a cap is never retired this way. Its cap is a standing arrangement, and it
+An account under a cap is never taken out this way. Its cap is a standing arrangement, and it
 only reaches 99% because that cap gave way in the last hours of its week (see
 [Caps](#caps)) — taking it out there would hold it out of the week starting minutes later.
 
 Only the week does this. Running a 5-hour window down is ordinary rotation — it refills
-while you work — so nothing is retired for it. And rotation still moves you *off* a retired
-account you are sitting on; being retired only stops it coming back.
+while you work — so nothing is taken out for it. And rotation still moves you *off* a held
+account you are sitting on; being held only stops it coming back.
 
 ### Capping one account's share
 
@@ -899,7 +899,7 @@ actually help the work you're in the middle of.
 
 140 checks against a throwaway `HOME` with three fake accounts — listing, numbering,
 switching by name and number, exit codes, the pool, per-account caps, the week's own 99%
-and the retirement it triggers, rotation decisions, the statusline install, rendered frames
+and the hold it triggers, rotation decisions, the statusline install, rendered frames
 of the live view (including the switch prompt and two-digit account numbers) and the
 burn-rate arithmetic behind its estimate, the daemon switching on a data change, staying
 quiet when it shouldn't and restarting itself on an update, two rotations racing each other,

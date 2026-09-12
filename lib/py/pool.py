@@ -37,7 +37,7 @@ if action in ("in", "out"):
     else:
         out.pop(email, None)
         # Putting an account back is saying it should answer now, so whatever record of it
-        # not answering retired it goes too -- otherwise one more silence retires it again.
+        # not answering took it out goes too -- or one more silence takes it out again.
         forget_ask(email)
         print("ccex: %s is back in the rotation pool" % email)
     save(POOL, out)

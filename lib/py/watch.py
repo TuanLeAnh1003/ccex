@@ -531,11 +531,12 @@ class View:
                 if n == 0:
                     row.add(GAP)
             # Why rotation would or would not choose this account, in words: the marks it
-            # used to be (c, x, X) all meant something about this one question.
+            # used to be (c, x) both meant something about this one question.
             state, tint = "in pool", GREY      # not `colour`: that is this frame's own flag
-            if a["held_auto"]:
-                state, tint = "retired", RED
-            elif a["held"]:
+            if a["held"]:
+                # One state, whoever put it there: an account out of the pool is out of the
+                # pool, and `ccex pool in` is the way back from either. Why it went is worth
+                # saying in a sentence, not worth a second word in a twelve-column cell.
                 state, tint = "held", YELLOW
             elif a["cap_five"] or a["cap_seven"]:
                 # what it is held to now, not what it was set to: a cap gives way as its week
@@ -794,7 +795,7 @@ def main():
                         v.move(-1 if arrow == "A" else 1)
                     elif arrow in ("C", "D"):
                         # Sideways is in and out of the pool: right pushes the account out
-                        # of rotation, left brings it back -- including one it retired.
+                        # of rotation, left brings it back -- including one it held itself.
                         on = v.selected()
                         if on:
                             v.background("pool", [CCEX, "pool",

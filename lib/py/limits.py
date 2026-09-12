@@ -5,7 +5,7 @@ Only `--force` asks an account directly, which is the one thing here that starts
 """
 import json, sys, time
 
-from ccexlib import BASE, caps, email_for, expand, held, held_auto, id_for, is_base, slots
+from ccexlib import BASE, caps, email_for, expand, held, id_for, is_base, slots
 from decide import FIVE_AT, cap as in_force
 from probe import NOTE, probe
 from usage import (account_json, age, cached, compact, live_sessions, reporting,
@@ -104,7 +104,7 @@ elif tsv:
         c5, c7 = caps(d)
         # One flags field, never empty: IFS=$'\t' collapses runs of tabs, so an empty
         # column would shift every field after it in the shell that reads this.
-        flags = ",".join(f for f in ("auto" if held_auto(d) else "", "held" if held(d) else "",
+        flags = ",".join(f for f in ("held" if held(d) else "",
                                      "cap" if (c5 or c7) else "") if f)
         print("\t".join([name, str(id_for(d) or "-"),
                          compact(d, "five_hour").ljust(22), compact(d, "seven_day").ljust(26),

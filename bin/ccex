@@ -22,8 +22,8 @@ ccex ls -w|--watch [--every 5s] [--at N] [--refresh 15m] [--rotate]
 With no account, every account as one row each:
 
   #         its number: `ccex use 3` is the whole switch
-  ACCOUNT   slot name; * marks the live one, x one you held out of the rotation pool,
-            X one rotation retired because its week is spent, until that week resets
+  ACCOUNT   slot name; * marks the live one, x one held out of the rotation pool --
+            by you, or by rotation when it found the account spent or unable to answer
   TOKEN     access token: active, or stale until something uses the account
   REFRESH   when the login itself expires and needs a browser again
   5H        share of the 5-hour window spent, and how long until it resets
@@ -62,7 +62,7 @@ it needs a few minutes of readings before it can say.
 Each row is one account by email, then each window as a percentage, a bar with a tick
 where that account counts as out of room, and how long until it resets. `▶` marks the
 account you are billing, `›` the one the arrows are on, and ROTATION says whether
-rotation may choose it -- in pool, held, retired, or its own cap. CHECKED is how old
+rotation may choose it -- in pool, held, or its own cap. CHECKED is how old
 its numbers are and REFRESH how long its login lasts -- the refresh token's own clock,
 which is what ends in a browser. Both give way on a narrow terminal.
 
@@ -380,8 +380,7 @@ case "$cmd" in
       d=$(dir_for "$p")
       mark=' '; [ "$(readlink -f "$d" 2>/dev/null)" = "$(readlink -f "$cur" 2>/dev/null)" ] && mark='*'
       case ",${FLAGS[$p]:-}," in                 # held wins: a cap is moot on an account
-        *,auto,*) mark="${mark% }X" ;;            # rotation retired it; `ccex pool in` revives it
-        *,held,*) mark="${mark% }x" ;;            # you took it out; rotation may not choose it
+        *,held,*) mark="${mark% }x" ;;            # out of the pool, by your hand or rotation's
         *,cap,*)  mark="${mark% }c" ;;
       esac
       IFS=$'\t' read -r email tier state rstate < <(info "$d")

@@ -191,7 +191,7 @@ def row_label(a, now, col, at):
     row as everyone else, marked where its number would be.
     """
     c = parts(a, now)
-    tail = "  ·  retired" if a["held_auto"] else ("  ·  held" if a["held"] else "")
+    tail = "  ·  held" if a["held"] else ""
     return "%s  %s   5h %s %s %s  ·  wk %s %s %s%s" % (
         col("lead", c["lead"]), col("name", c["name"]),
         pct(a["five"]), meter(a["five"], cap(a, "five", at)), col("five", c["five"]),
