@@ -11,7 +11,7 @@ not permitted to run.
 """
 import json, os, pty, re, select, signal, subprocess, sys, time
 
-from ccexlib import (BASE, cfg_for, creds_for, email_for, is_base, load, note_ask,
+from ccexlib import (BASE, cfg_for, creds_for, email_for, is_base, load, note_probe,
                      save, seed_into)
 from usage import cached
 
@@ -50,7 +50,6 @@ def trusted_dir(cfg):
 TIMEOUT = int(os.environ.get("CCEX_PROBE_TIMEOUT") or 50)
 
 
-LAUNCHED = ("ok", "noauth", "timeout")   # the outcomes that mean a session really was started
 
 # An organisation can turn Claude Code off for its accounts, and then nothing on that account
 # works -- not a reading, and not any real session either. It says so in two places, and both
@@ -128,10 +127,8 @@ def probe(d, timeout=None):
     """Launch this account and read it, keeping a record of whether the launch worked.
 
     Every caller comes through here -- rotation asking before a switch, `ccex ls --force`,
-    the age-out read -- and the record has to count all of them, because the thing it is
-    for is telling an account that cannot be launched from one that merely was not this
-    time. Only outcomes from an actual launch count: no trusted folder and no login are
-    facts about this machine and this slot, and neither of them asked the account anything.
+    the age-out read -- and every one of them files what it heard, because the tick that
+    acts on a refusal is not always the tick that was told.
 
     A launch that comes back empty is asked one more question, because "it did not answer"
     covers both an account that was slow and an account that is not allowed to run at all,
@@ -140,8 +137,7 @@ def probe(d, timeout=None):
     st = launch(d, timeout)
     if st == "timeout" and allowed(d) is False:
         st = "noauth"          # it was not too slow to answer; it was told it may not
-    if st in LAUNCHED:
-        note_ask(email_for(d), st)
+    note_probe(email_for(d), st)
     return st
 
 

@@ -341,10 +341,10 @@ t  "and again"                       "60/95"   cap_says 8
 t  "the last window is the default"  "90/99"   cap_says 3
 t  "a reset already passed does not" "60/75"   cap_says -3
 t  "nor does an unmeasured week"     "60/75"   cap_says none
-teardown; setup
+teardown; setup                 # a spent week is a spent week; its own cap does not excuse it
 spend_week "$HOME/.claude.json" 99
 "$CCEX" pool cap a@example.com --weekly 90 >/dev/null
-absent "an account that caps its own week is never held out" "a@example.com" \
+t  "a capped account is held out too" "weekly at 99%" \
   bash -c '"$1" rotate --at 80 --no-launch >/dev/null 2>&1; cat "$2/.pool.json" 2>/dev/null' _ "$CCEX" "$CC_PROFILE_ROOT"
 
 echo "verifying before the switch"
@@ -921,19 +921,10 @@ age_numbers
 out=$("$CCEX" rotate --at 80 2>&1)
 t      "a silence never takes the slot"        "would not answer, so nothing moved" echo "$out"
 absent "so the slot stays where it is"         "b@example.com"      live_email
-absent "and one silence holds nothing"         "b@example.com"      pool_has
-"$CCEX" ls cee --force >/dev/null 2>&1      # the witness: a launch on this machine does work
+absent "but a silence is not a refusal"        "b@example.com"      pool_has
 "$CCEX" rotate --at 80 >/dev/null 2>&1
 "$CCEX" rotate --at 80 >/dev/null 2>&1
-t      "three silences in a row hold it out"   "no answer in 3 launches" pool_has
-
-teardown; setup                 # nothing on this machine answers: that is not bee's fault
-fake_claude '{}'
-age_numbers
-"$CCEX" rotate --at 80 >/dev/null 2>&1
-"$CCEX" rotate --at 80 >/dev/null 2>&1
-"$CCEX" rotate --at 80 >/dev/null 2>&1
-t      "with no witness nothing is held out"   "none"               pool_has
+t      "and stays that way however often"      "none"               pool_has
 
 echo "a switch you typed"
 teardown; setup                 # cee is spent; naming it anyway must say so before it moves

@@ -5,7 +5,7 @@ is the softer version -- it stays in rotation, but only until the window it name
 """
 import sys
 
-from ccexlib import CAPS, POOL, email_for, expand, forget_ask, load, save, slots
+from ccexlib import CAPS, POOL, email_for, expand, load, save, slots, unbar
 
 WINDOWS = {"--5h": "five_hour", "--weekly": "seven_day"}
 LABEL = {"five_hour": "5h", "seven_day": "weekly"}
@@ -36,9 +36,9 @@ if action in ("in", "out"):
         print("ccex: %s is out of the rotation pool; its login is untouched" % email)
     else:
         out.pop(email, None)
-        # Putting an account back is saying it should answer now, so whatever record of it
-        # not answering took it out goes too -- or one more silence takes it out again.
-        forget_ask(email)
+        # Putting an account back is saying to try it again, so the refusal that took it
+        # out goes with it -- otherwise the next tick reads that and takes it straight out.
+        unbar(email)
         print("ccex: %s is back in the rotation pool" % email)
     save(POOL, out)
     raise SystemExit
