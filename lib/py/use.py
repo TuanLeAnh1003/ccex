@@ -3,8 +3,8 @@ import os, shutil, sys, time
 
 import burn
 import creds
-from ccexlib import (BASE, ROOT, canon, cfg_for, cred_backup, cred_load, cred_save,
-                     creds_for, email_for, expand, held, id_for, load, logged_in, note_switch,
+from ccexlib import (BASE, ROOT, canon, cfg_for, cred_backup, cred_load, cred_save, creds_for,
+                     email_for, expand, held, id_for, load, logged_in, note, note_switch,
                      running_at, save, seed_into, step)
 from decide import FIVE_AT, cap, own, ranked, reads
 from usage import account_json, cached
@@ -95,7 +95,7 @@ if asking and not dry:
     # say you meant it.
     from ask import ask
     step(None)                        # this switch's trail is its own
-    step("switching to %s by hand, reading it first" % src_name)
+    note("switching to %s by hand, reading it first" % src_name)
     tried, named = set(), src_name
     while True:
         was = None if row["five"] is None else reads(row)
@@ -129,7 +129,7 @@ if asking and not dry:
             sys.exit("ccex: %s is at %s, %s - and there is nothing else with room, so nothing "
                      "moved (`ccex use %s --anyway` switches to it regardless)"
                      % (src_email, reads(row), why, target))
-        step("%s has no room (%s), reading %s instead" % (src_name, why, nxt["name"]))
+        note("%s has no room (%s), reading %s instead" % (src_name, why, nxt["name"]))
         print("ccex: %s is at %s, %s - handing over to %s instead (`ccex use %s --anyway` "
               "switches to it regardless)"
               % (src_email, reads(row), why, nxt["email"], target), file=sys.stderr)
